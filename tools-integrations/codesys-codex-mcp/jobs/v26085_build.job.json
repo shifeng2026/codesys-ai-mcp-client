@@ -1,0 +1,11 @@
+{
+  "action": "build",
+  "resultPath": "C:\\Users\\29925\\AppData\\Local\\Temp\\codesys-codex-mcp\\jobs\\v26085_build.result.json",
+  "generatedAt": "2026-08-01T13:45:00.000+08:00",
+  "arguments": {
+    "projectPath": "C:\\path\\FiveDofPlatform_v26085.project",
+    "mode": "rebuild",
+    "saveBeforeBuild": true,
+    "timeoutSec": 600
+  }
+}

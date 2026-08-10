@@ -1,0 +1,17 @@
+{
+  "name": "autocad-codex-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local MCP server that exposes AutoCAD Automation tools to Codex.",
+  "bin": {
+    "autocad-codex-mcp": "./src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "smoke": "node test/smoke-test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

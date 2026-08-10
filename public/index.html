@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex 本地客户端</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">C</div>
+          <div>
+            <h1>Codex 本地客户端</h1>
+            <p id="codexStatus">检测中</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="layout-switch" title="切换客户端布局，旧版布局会保留原三列比例">
+            <span>布局</span>
+            <div id="layoutModeControl" class="segment-control layout-mode-control" role="group" aria-label="客户端布局">
+              <button type="button" data-layout-mode="modern" class="active" title="使用新的工作台布局">新布局</button>
+              <button type="button" data-layout-mode="classic" title="切回旧版三列布局">旧版</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel input-panel">
+          <div class="panel-head">
+            <div>
+              <h2>输入</h2>
+              <p>输入要交给 Codex 的指令</p>
+            </div>
+            <div id="inputMeta" class="status-pill">待运行</div>
+          </div>
+
+          <section class="input-section workspace-section resizable-y collapsible-section" data-input-height="workspace" data-collapsible-section="workspace">
+            <div class="section-head">
+              <label class="field-label" for="workspaceInput">工作目录</label>
+              <button class="icon-button collapse-button" type="button" data-section-collapse="workspace" data-collapse-label="工作目录" aria-expanded="true" aria-label="折叠工作目录" title="折叠工作目录">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <div class="path-row">
+              <input id="workspaceInput" type="text" spellcheck="false" autocomplete="off">
+              <button id="refreshDirsButton" class="icon-button" type="button" title="刷新目录" aria-label="刷新目录">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4M18 4v4h-4M6 20v-4h4"/></svg>
+              </button>
+            </div>
+            <div class="directory-toolbar">
+              <button id="parentDirButton" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                上一级
+              </button>
+            </div>
+            <div id="directoryList" class="directory-list" aria-live="polite"></div>
+          </section>
+
+          <section class="input-section run-model-section resizable-y collapsible-section" data-input-height="run-model" data-collapsible-section="run-model">
+            <div class="model-head section-head">
+              <div class="section-head-copy">
+                <strong>运行与模型</strong>
+                <span id="modelStatus">读取中</span>
+              </div>
+              <button class="icon-button collapse-button" type="button" data-section-collapse="run-model" data-collapse-label="运行与模型" aria-expanded="true" aria-label="折叠运行与模型" title="折叠运行与模型">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <label class="field-label" for="agentSelect">智能体</label>
+            <select id="agentSelect" class="agent-select" autocomplete="off" title="选择本次任务的工程智能体；自动总控会按你的指令自动切换排查策略">
+              <option value="auto">自动总控</option>
+              <option value="plc_fault">软硬件联动故障</option>
+              <option value="codesys">CODESYS工程</option>
+              <option value="python_plc">Python-PLC控制</option>
+              <option value="register_map">寄存器映射</option>
+              <option value="verification">验证测试</option>
+              <option value="git_sync">Git同步</option>
+              <option value="client_maintenance">客户端维护</option>
+            </select>
+            <div class="control-group">
+              <div class="field-label">运行模式</div>
+              <div id="modeControl" class="segment-control" role="group" aria-label="运行模式">
+                <button type="button" data-mode="read" title="只允许 Codex 读取和分析文件，不写入本地项目">只读分析</button>
+                <button type="button" data-mode="write" class="active" title="允许 Codex 在当前项目工作区内创建和修改文件">工作区写入</button>
+                <button type="button" data-mode="confirm" title="允许写入工作区；网页客户端不使用 Codex 交互批准，避免任务卡在等待确认">安全写入</button>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="field-label">推理强度</div>
+              <div id="reasoningControl" class="segment-control reasoning-control" role="group" aria-label="推理强度">
+                <button type="button" data-reasoning="default" class="active" title="自动按问题难度选择低/中/高/极高推理强度">自动</button>
+                <button type="button" data-reasoning="low" title="低推理强度，适合简单修改和快速问答">低</button>
+                <button type="button" data-reasoning="medium" title="中等推理强度，适合常规代码维护">中</button>
+                <button type="button" data-reasoning="high" title="高推理强度，适合复杂排查、联动分析和较大改动">高</button>
+                <button type="button" data-reasoning="xhigh" title="极高推理强度，适合复杂架构和高风险维护，耗时更长">极高</button>
+              </div>
+            </div>
+            <label class="field-label" for="modelSelect">模型</label>
+            <div class="model-row">
+              <select id="modelSelect" autocomplete="off" title="选择本次 Codex 运行使用的模型；默认配置来自本机 Codex 配置文件"></select>
+              <button id="refreshModelsButton" class="icon-button" type="button" title="重新读取本机 Codex 配置和可用模型列表" aria-label="刷新模型列表">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4M18 4v4h-4M6 20v-4h4"/></svg>
+              </button>
+            </div>
+            <input id="modelInput" class="custom-model-input" type="text" spellcheck="false" autocomplete="off" placeholder="自定义模型名" title="手动输入模型 ID，仅在模型下拉选择“自定义模型”时生效">
+            <div class="option-grid">
+              <label class="check-tile" title="运行 Codex 时启用联网搜索能力"><input id="webSearchToggle" type="checkbox">联网搜索</label>
+              <label class="check-tile" title="使用临时 Codex 会话，不复用上一轮 CLI 会话状态"><input id="ephemeralToggle" type="checkbox">临时会话</label>
+              <label class="check-tile" title="同一项目内遇到完全相同指令时，优先展示已保存历史结果"><input id="autoReuseToggle" type="checkbox" checked>同目录相同指令复用</label>
+              <label class="check-tile" title="把本地客户端维护记录注入 Codex 上下文，便于后续直接升级客户端"><input id="maintenanceContextToggle" type="checkbox" checked>客户端维护上下文</label>
+            </div>
+          </section>
+
+          <section class="input-section mcp-block resizable-y collapsible-section" data-input-height="mcp" data-collapsible-section="mcp">
+            <div class="mcp-head section-head">
+              <div class="section-head-copy">
+                <strong>MCP 工具集成</strong>
+                <span id="mcpStatus">检测中</span>
+              </div>
+              <div class="section-head-actions">
+                <button id="refreshMcpButton" class="icon-button" type="button" title="刷新 MCP 状态" aria-label="刷新 MCP 状态">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4M18 4v4h-4M6 20v-4h4"/></svg>
+                </button>
+                <button class="icon-button collapse-button" type="button" data-section-collapse="mcp" data-collapse-label="MCP 工具集成" aria-expanded="true" aria-label="折叠 MCP 工具集成" title="折叠 MCP 工具集成">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="mcp-grid">
+              <label class="check-tile mcp-tile" title="启用后 Codex 可调用 CODESYS 工程识别、导入导出和编译工具">
+                <input id="codesysMcpToggle" type="checkbox" checked>
+                <span><strong>CODESYS</strong><small>工程信息、导入导出、编译</small></span>
+              </label>
+              <label class="check-tile mcp-tile" title="启用后 Codex 可调用 AutoCAD 图纸读取、绘图和保存工具">
+                <input id="autocadMcpToggle" type="checkbox" checked>
+                <span><strong>AutoCAD</strong><small>图纸、图层、绘图、保存</small></span>
+              </label>
+            </div>
+          </section>
+
+          <section class="input-section document-block resizable-y collapsible-section" data-input-height="document" data-collapsible-section="document">
+            <div class="section-head">
+              <div class="section-head-copy">
+                <strong>文档阅读</strong>
+                <span id="documentStatus">支持 PDF / Word / Excel</span>
+              </div>
+              <button class="icon-button collapse-button" type="button" data-section-collapse="document" data-collapse-label="文档阅读" aria-expanded="true" aria-label="折叠文档阅读" title="折叠文档阅读">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <label class="field-label" for="documentPath">文档路径</label>
+            <div class="document-row">
+              <input id="documentPath" type="text" spellcheck="false" autocomplete="off" placeholder="PDF、docx、xlsx 文件路径，支持相对当前工作目录" title="输入 PDF、Word 或 Excel 文件路径">
+              <button id="documentReadButton" type="button" title="读取文档内容">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/></svg>
+                读取
+              </button>
+            </div>
+            <div class="document-actions">
+              <button id="documentToPromptButton" class="secondary-button compact-button" type="button" disabled title="把已读取的文档内容追加到当前指令">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                加入指令
+              </button>
+            </div>
+            <pre id="documentOutput" class="document-output">未读取文档</pre>
+          </section>
+          <div class="prompt-workbench">
+          <textarea id="promptInput" class="prompt-box resizable-y" data-input-height="prompt" spellcheck="false" title="输入要交给 Codex 的维护、分析或代码修改指令" placeholder="在这里输入指令，Ctrl + Enter 运行"></textarea>
+            <div class="prompt-actions">
+              <button id="continueRunButton" class="secondary-button continue-button" type="button" disabled title="先从历史记录里选择一条上下文" aria-label="继续追问">
+                继续追问
+              </button>
+              <button id="runButton" class="primary-button run-button" type="button" title="按当前运行与模型设置启动 Codex 推理">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                运行
+              </button>
+              <button id="stopButton" class="danger-button stop-button" type="button" disabled title="停止当前 Codex 推理任务">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>
+                停止
+              </button>
+              <button id="clearButton" class="secondary-button clear-button" type="button" title="清空输入框、当前运行过程和结果显示">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M9 10v8M15 10v8M6 6l1 14h10l1-14"/></svg>
+                清空
+              </button>
+            </div>
+          </div>
+
+          <div id="continueContext" class="continue-context" hidden>
+            <div>
+              <strong>续问上下文</strong>
+              <span id="continueContextText">未选择历史上下文</span>
+            </div>
+            <button id="cancelContinueButton" class="secondary-button compact-button" type="button">取消续问</button>
+          </div>
+
+          <section class="history-block resizable-y collapsible-section" data-input-height="history" data-collapsible-section="history">
+            <div class="history-head section-head">
+              <div class="section-head-copy">
+                <strong>历史推理记录</strong>
+                <span id="historyStatus">读取中</span>
+              </div>
+              <div class="section-head-actions">
+                <button id="favoriteHistoryToggle" class="secondary-button compact-button favorite-filter-button" type="button" aria-pressed="false" title="只看收藏">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.1-5.6-3-5.6 3 1.1-6.1L3 9.6l6.2-.9z"/></svg>
+                  收藏
+                </button>
+                <button id="clearHistoryButton" class="danger-button compact-button history-clear-button" type="button" title="清空非收藏历史" aria-label="清空非收藏历史">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M9 10v8M15 10v8M6 6l1 14h10l1-14"/></svg>
+                  清空非收藏
+                </button>
+                <button id="refreshHistoryButton" class="icon-button" type="button" title="刷新历史" aria-label="刷新历史">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4M18 4v4h-4M6 20v-4h4"/></svg>
+                </button>
+                <button class="icon-button collapse-button" type="button" data-section-collapse="history" data-collapse-label="历史推理记录" aria-expanded="true" aria-label="折叠历史推理记录" title="折叠历史推理记录">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="historyList" class="history-list history-list-full" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <div class="column-resizer" data-column-resizer="input-reasoning" role="separator" aria-orientation="vertical" title="拖动调整输入框和推理框宽度"></div>
+
+        <section class="panel reasoning-panel">
+          <div class="workspace-column-head">
+            <div>
+              <h2>工程工作区</h2>
+              <p>Git / CODESYS / PLC联动</p>
+            </div>
+          </div>
+
+          <section class="input-section git-sync-block resizable-y collapsible-section" data-input-height="git-sync" data-collapsible-section="git-sync">
+            <div class="section-head">
+              <div class="section-head-copy">
+                <strong>Git仓库同步</strong>
+                <span>同步 CODESYS 工程仓库和 Python 控制仓库</span>
+              </div>
+              <button class="icon-button collapse-button" type="button" data-section-collapse="git-sync" data-collapse-label="Git仓库同步" aria-expanded="true" aria-label="折叠 Git仓库同步" title="折叠 Git仓库同步">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+
+            <div class="git-repo-card">
+              <strong>CODESYS 工程仓库</strong>
+              <div class="codesys-git-path">
+                <label class="field-label" for="codesysGitRoot">仓库路径</label>
+                <input id="codesysGitRoot" type="text" spellcheck="false" autocomplete="off" title="CODESYS 工程所在的 Git 仓库根目录">
+              </div>
+              <div class="codesys-git-meta">
+                <span id="codesysGitStatusText">未检查</span>
+                <label class="codesys-git-check" title="勾选后同步时把目标 project 一并加入暂存区">
+                  <input id="codesysGitIncludeTarget" type="checkbox">
+                  同步目标project
+                </label>
+              </div>
+              <div class="codesys-git-actions">
+                <button id="codesysGitStatusButton" type="button" title="读取 CODESYS 仓库当前状态">Git状态</button>
+                <button id="codesysGitPullButton" type="button" title="从远端拉取 CODESYS 仓库更新">拉取更新</button>
+                <input id="codesysGitCommitMessage" type="text" spellcheck="false" autocomplete="off" placeholder="提交说明" title="Git 提交说明">
+                <button id="codesysGitSyncButton" type="button" title="保存 XML 并提交推送当前 CODESYS 文件">提交推送</button>
+              </div>
+            </div>
+
+            <div class="git-repo-card">
+              <strong>Python 控制仓库</strong>
+              <div class="git-path-row">
+                <label class="field-label" for="pythonGitRoot">仓库路径</label>
+                <input id="pythonGitRoot" type="text" spellcheck="false" autocomplete="off" title="Python 控制代码所在的 Git 仓库根目录">
+              </div>
+              <div class="git-meta-row">
+                <span id="pythonGitStatusText">未检查</span>
+              </div>
+              <div class="git-path-row git-paths-row">
+                <label class="field-label" for="pythonGitPaths">同步路径</label>
+                <textarea id="pythonGitPaths" class="git-paths-input" spellcheck="false" autocomplete="off" placeholder="用逗号、分号或换行分隔需要同步的文件/目录" title="输入要同步到 Git 的 Python 文件或目录"></textarea>
+              </div>
+              <div class="git-actions">
+                <button id="pythonGitStatusButton" type="button" title="读取 Python 仓库当前状态">Git状态</button>
+                <button id="pythonGitPullButton" type="button" title="从远端拉取 Python 仓库更新">拉取更新</button>
+                <input id="pythonGitCommitMessage" type="text" spellcheck="false" autocomplete="off" placeholder="提交说明" title="Python Git 提交说明">
+                <button id="pythonGitSyncButton" type="button" title="提交并推送 Python 控制代码">提交推送</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="input-section codesys-block resizable-y collapsible-section" data-input-height="codesys" data-collapsible-section="codesys">
+            <div class="codesys-head section-head">
+              <div class="section-head-copy">
+                <strong>CODESYS 工程读写</strong>
+                <span id="codesysPanelStatus">读取中</span>
+              </div>
+              <div class="section-head-actions">
+                <button class="icon-button collapse-button" type="button" data-section-collapse="codesys" data-collapse-label="CODESYS 工程读写" aria-expanded="true" aria-label="折叠 CODESYS 工程读写" title="折叠 CODESYS 工程读写">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="codesys-paths">
+              <label>
+                <span class="field-label" for="codesysProjectPath">工程路径</span>
+                <input id="codesysProjectPath" type="text" spellcheck="false" autocomplete="off" title="当前 CODESYS project 文件路径">
+              </label>
+              <label>
+                <span class="field-label" for="codesysExportPath">XML路径</span>
+                <input id="codesysExportPath" type="text" spellcheck="false" autocomplete="off" title="当前 PLCopenXML 导出路径">
+              </label>
+              <label>
+                <span class="field-label" for="codesysSaveAsPath">目标project</span>
+                <input id="codesysSaveAsPath" type="text" spellcheck="false" autocomplete="off" title="XML 转回 project 时保存的目标副本路径">
+              </label>
+            </div>
+            <div class="codesys-project-switch">
+              <label class="field-label" for="codesysProjectSelect">同目录工程</label>
+              <select id="codesysProjectSelect" autocomplete="off" title="切换当前工程目录下的其他 .project 文件"></select>
+              <button id="codesysRefreshProjectsButton" type="button" title="刷新同目录工程列表">刷新工程</button>
+              <span id="codesysProjectSwitchStatus">未读取</span>
+            </div>
+            <div class="codesys-actions codesys-primary-actions">
+              <button id="codesysExportButton" type="button" title="启动 CODESYS，把当前 project 导出到 export 子目录的同名 PLCopenXML">从project重导</button>
+              <button id="codesysImportButton" type="button" title="先保存当前 XML，再启动 CODESYS 导入生成目标 project 副本">XML转project</button>
+              <button id="codesysBuildButton" type="button" title="对目标 project 只做 CODESYS 编译验证，不下载 PLC；编译模式在高级/诊断中切换">编译验证</button>
+            </div>
+            <details class="codesys-advanced">
+              <summary>
+                <span>高级/诊断</span>
+                <small>本地读写、静态检查和编译模式</small>
+              </summary>
+              <div class="codesys-actions codesys-secondary-actions">
+                <button id="codesysReadExportButton" type="button" title="只读取 export 子目录里同名 PLCopenXML，不启动 CODESYS">快速读XML</button>
+                <button id="codesysAnalyzeExportButton" type="button" title="只静态检查当前 XML 文本和工程路径，不启动 CODESYS">快速检查</button>
+                <button id="codesysInfoButton" type="button" title="通过 MCP 读取当前 project 信息，并同步 XML 与副本路径">识别工程</button>
+                <button id="codesysSaveExportButton" type="button" title="把当前 XML 文本保存到 export 子目录的同名文件，不启动 CODESYS">保存XML</button>
+                <select id="codesysBuildMode" autocomplete="off" title="编译验证使用的 CODESYS 操作模式；默认 rebuild">
+                  <option value="rebuild">rebuild</option>
+                  <option value="build">build</option>
+                  <option value="clean">clean</option>
+                  <option value="clean_build">clean_build</option>
+                  <option value="generate_code">generate_code</option>
+                </select>
+              </div>
+            </details>
+            <textarea id="codesysExportText" class="codesys-export-text" spellcheck="false" placeholder="PLCopenXML 文本会显示在这里，可直接修改后保存" title="当前 PLCopenXML 文本"></textarea>
+          </section>
+
+          <section class="input-section plc-link-block resizable-y collapsible-section" data-input-height="plc-link" data-collapsible-section="plc-link">
+            <div class="section-head">
+              <div class="section-head-copy">
+                <strong>PLC联动验证</strong>
+                <span id="plcLinkStatus">读取中</span>
+              </div>
+              <button class="icon-button collapse-button" type="button" data-section-collapse="plc-link" data-collapse-label="PLC联动验证" aria-expanded="true" aria-label="折叠 PLC联动验证" title="折叠 PLC联动验证">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <div class="plc-link-paths">
+              <label>
+                <span class="field-label" for="plcPythonRoot">Python路径</span>
+                <input id="plcPythonRoot" type="text" spellcheck="false" autocomplete="off" title="用于联动验证的 Python 仓库路径">
+              </label>
+              <label>
+                <span class="field-label" for="plcPythonLocalIp">Python本机IP</span>
+                <input id="plcPythonLocalIp" type="text" spellcheck="false" autocomplete="off" title="当前电脑的以太网 IPv4 地址">
+              </label>
+              <label>
+                <span class="field-label" for="plcPythonScript">Python脚本</span>
+                <input id="plcPythonScript" type="text" spellcheck="false" autocomplete="off" title="执行 PLC 联动和寄存器验证的 Python 脚本">
+              </label>
+              <label>
+                <span class="field-label" for="plcRegisterMap">寄存器表</span>
+                <input id="plcRegisterMap" type="text" spellcheck="false" autocomplete="off" title="寄存器表文件路径">
+              </label>
+              <label>
+                <span class="field-label" for="plcDeviceName">设备名</span>
+                <input id="plcDeviceName" type="text" spellcheck="false" autocomplete="off" title="PLC 设备名称">
+              </label>
+            </div>
+            <div class="plc-local-ip-status" aria-live="polite">
+              <span>本机以太网 IPv4</span>
+              <strong id="plcLocalIpStatus">识别中</strong>
+            </div>
+            <div class="plc-link-actions">
+              <button id="plcLinkAnalyzeButton" type="button" title="检查 CODESYS、Python 和寄存器表联动关系">联动检查</button>
+              <button id="plcGenerateRegisterMapButton" type="button" title="自动生成寄存器表">生成寄存器表</button>
+              <button id="plcReadFeedbackButton" type="button" title="通过 Python 只读 PLC 反馈寄存器">只读反馈</button>
+              <button id="plcGenerateCommandsButton" type="button" title="生成 Python/PLC 验证命令">生成命令</button>
+            </div>
+            <textarea id="plcLinkOutput" class="plc-link-output" readonly spellcheck="false" aria-live="polite" placeholder="联动检查、寄存器表和命令摘要会显示在这里"></textarea>
+
+            <div class="python-code-tool">
+              <div class="python-code-head">
+                <div>
+                  <strong>Python运行与修改</strong>
+                  <span id="pythonCodeStatus">读取中</span>
+                </div>
+              </div>
+              <div class="python-code-layout">
+                <div class="python-file-pane">
+                  <div class="python-tree-toolbar">
+                    <span>仓库文件树</span>
+                    <button id="pythonRefreshTreeButton" type="button" title="刷新 Python 仓库文件树">刷新文件树</button>
+                  </div>
+                  <div id="pythonRepoTree" class="python-repo-tree" aria-live="polite"></div>
+                </div>
+                <div class="python-editor-pane">
+                  <div class="python-code-path">
+                    <label class="field-label" for="pythonCodePath">文件路径</label>
+                    <input id="pythonCodePath" type="text" spellcheck="false" autocomplete="off" title="当前正在编辑的 Python 文件路径">
+                  </div>
+                  <div class="python-code-actions">
+                    <div class="python-edit-history" role="group" aria-label="Python 编辑撤回">
+                      <button id="pythonUndoButton" class="icon-button" type="button" disabled title="撤回上一处 Python 代码编辑" aria-label="撤回">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+                      </button>
+                      <button id="pythonRedoButton" class="icon-button" type="button" disabled title="恢复刚撤回的 Python 代码编辑" aria-label="退撤回">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>
+                      </button>
+                    </div>
+                    <button id="pythonLoadButton" type="button" title="从仓库读取当前文件">读取</button>
+                    <button id="pythonSaveButton" type="button" title="保存当前文件到仓库">保存</button>
+                    <div class="python-run-row">
+                      <input id="pythonRunArgs" type="text" spellcheck="false" autocomplete="off" placeholder="运行参数" title="运行 Python 时传入的参数">
+                      <button id="pythonRunButton" type="button" title="保存并运行当前 Python 脚本">运行</button>
+                      <button id="pythonStopButton" type="button" disabled title="停止当前 Python 进程">停止Python</button>
+                    </div>
+                  </div>
+                  <textarea id="pythonCodeText" class="python-code-text resizable-y" data-input-height="python-code-text" spellcheck="false" placeholder="选择文件后可在这里编辑 Python 代码" title="Python 文件内容，可拖动右下角调节高度"></textarea>
+                  <textarea id="pythonRunOutput" class="python-run-output" readonly spellcheck="false" placeholder="Python 运行输出会显示在这里" title="Python 运行输出"></textarea>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <div class="column-resizer" data-column-resizer="reasoning-result" role="separator" aria-orientation="vertical" title="拖动调整推理框和结果框宽度"></div>
+
+        <section class="panel result-panel">
+          <div class="reasoning-status-card">
+            <div class="panel-head">
+              <div>
+                <h2>运行推理</h2>
+                <p id="runStatus">待运行</p>
+              </div>
+              <div id="runMeta" class="status-pill">无会话</div>
+            </div>
+
+            <div id="thinkingState" class="thinking-state idle">
+              <span class="spinner" aria-hidden="true"></span>
+              <div>
+                <strong id="thinkingTitle">等待指令</strong>
+                <span id="thinkingDetail">运行后会显示可见推理摘要、执行过程和状态提示</span>
+              </div>
+            </div>
+
+            <div id="reasoningLog" class="log-box reasoning-log" aria-live="polite" hidden></div>
+          </div>
+
+          <div class="panel-head">
+            <div>
+              <h2>推理结果</h2>
+              <p id="resultStatus">等待输出</p>
+            </div>
+            <button id="copyResultButton" class="secondary-button compact-button" type="button" title="复制当前结果框中的文本">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h10v12H8zM6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              复制
+            </button>
+          </div>
+          <div id="resultLog" class="log-box result-log" aria-live="polite">
+            <div class="empty-result">运行完成后，最终回答会显示在这里。</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,652 @@
+<?xml version='1.0' encoding='utf-8'?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200"><fileHeader companyName="" productName="CODESYS" productVersion="CODESYS V3.5 SP20 Patch 4" creationDateTime="2026-07-31T21:56:50" /><contentHeader name="AxisEnableControl.enable_control.import.xml" modificationDateTime="2026-07-31T21:56:50"><coordinateInfo><fbd><scaling x="1" y="1" /></fbd><ld><scaling x="1" y="1" /></ld><sfc><scaling x="1" y="1" /></sfc></coordinateInfo></contentHeader><types><dataTypes /><pous><pou name="AxisEnableControl_PRG" pouType="program"><interface><localVars><variable name="i"><type><INT /></type></variable><variable name="xEnableAll"><type><BOOL /></type></variable><variable name="wEnableFeedback"><type><WORD /></type></variable></localVars></interface><body><ST><xhtml xmlns="http://www.w3.org/1999/xhtml">// arReg_data[32] 是五轴总使能命令寄存器。
+// 0 = 五轴同时关闭使能；非 0 = 五轴同时打开使能。
+xEnableAll := arReg_data[32] &lt;&gt; 0;
+
+// 单轴程序中的 MC_Power 已经使用 GVL.Axes[n].AxisEnable。
+// 这里统一写五个轴的 AxisEnable，避免每个单轴程序各自解析 Modbus 命令。
+FOR i := 1 TO GVL.AXIS_COUNT DO
+    GVL.Axes[i].AxisEnable := xEnableAll;
+END_FOR
+
+// arReg_data[48] 是五轴使能请求反馈寄存器。
+// bit0..bit4 分别反馈 X/Y/Z/B/C 的 AxisEnable 请求，bit15 表示五轴请求全部为 TRUE。
+wEnableFeedback := WORD#0;
+IF GVL.Axes[1].AxisEnable THEN wEnableFeedback := wEnableFeedback OR WORD#16#0001; END_IF;
+IF GVL.Axes[2].AxisEnable THEN wEnableFeedback := wEnableFeedback OR WORD#16#0002; END_IF;
+IF GVL.Axes[3].AxisEnable THEN wEnableFeedback := wEnableFeedback OR WORD#16#0004; END_IF;
+IF GVL.Axes[4].AxisEnable THEN wEnableFeedback := wEnableFeedback OR WORD#16#0008; END_IF;
+IF GVL.Axes[5].AxisEnable THEN wEnableFeedback := wEnableFeedback OR WORD#16#0010; END_IF;
+
+IF GVL.Axes[1].AxisEnable
+   AND GVL.Axes[2].AxisEnable
+   AND GVL.Axes[3].AxisEnable
+   AND GVL.Axes[4].AxisEnable
+   AND GVL.Axes[5].AxisEnable THEN
+    wEnableFeedback := wEnableFeedback OR WORD#16#8000;
+END_IF;
+
+arReg_data[48] := WORD_TO_INT(wEnableFeedback);</xhtml></ST></body><addData /></pou><pou name="AxisStatusFeedback_PRG" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbStatusX">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorX">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusY">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorY">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusZ">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorZ">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusB">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorB">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusC">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorC">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="wStatusX">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusY">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusZ">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusB">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusC">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorX">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorY">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorZ">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorB">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorC">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="bStatusErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+          </localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+// 本程序只做轴状态与轴错误号反馈，不直接控制轴运动。
+// 连续寄存器块从 arReg_data[32] 开始：
+// [32] 五轴总使能命令，[33..37] 五轴状态，[38..47] 五轴错误 ID，[48] 五轴使能请求反馈。
+
+fbStatusX(
+    Axis := AXIS_X,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorX,
+    ErrorID =&gt; ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorX,
+);
+
+// 轴本体错误必须用 MC_ReadAxisError 读取，不能从 MC_ReadStatus 取 AxisError。
+fbAxisErrorX(
+    Axis := AXIS_X,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; ,
+    ErrorID =&gt; ,
+    AxisError =&gt; bAxisErrorX,
+    AxisErrorID =&gt; dwAxisErrorX,
+    SWEndSwitchActive =&gt; bSwEndSwitchX
+);
+IF NOT bAxisErrorX THEN
+    // 无轴错误时清零错误 ID，避免寄存器保留上一次故障号。
+    dwAxisErrorX := DWORD#0;
+END_IF;
+
+// 把 X 轴 BOOL 状态压缩成一个 WORD 状态字输出。
+wStatusX := WORD#0;
+IF fbStatusX.Disabled THEN wStatusX := wStatusX OR WORD#16#0001; END_IF;
+IF fbStatusX.Errorstop THEN wStatusX := wStatusX OR WORD#16#0002; END_IF;
+IF fbStatusX.Stopping THEN wStatusX := wStatusX OR WORD#16#0004; END_IF;
+IF fbStatusX.StandStill THEN wStatusX := wStatusX OR WORD#16#0008; END_IF;
+IF fbStatusX.DiscreteMotion THEN wStatusX := wStatusX OR WORD#16#0010; END_IF;
+IF fbStatusX.ContinuousMotion THEN wStatusX := wStatusX OR WORD#16#0020; END_IF;
+IF fbStatusX.SynchronizedMotion THEN wStatusX := wStatusX OR WORD#16#0040; END_IF;
+IF fbStatusX.Homing THEN wStatusX := wStatusX OR WORD#16#0080; END_IF;
+IF fbStatusX.ConstantVelocity THEN wStatusX := wStatusX OR WORD#16#0100; END_IF;
+IF fbStatusX.Accelerating THEN wStatusX := wStatusX OR WORD#16#0200; END_IF;
+IF fbStatusX.Decelerating THEN wStatusX := wStatusX OR WORD#16#0400; END_IF;
+IF bStatusErrorX THEN wStatusX := wStatusX OR WORD#16#0800; END_IF;
+IF bStatusFBErrorX THEN wStatusX := wStatusX OR WORD#16#1000; END_IF;
+IF bAxisErrorX THEN wStatusX := wStatusX OR WORD#16#4000; END_IF;
+IF bSwEndSwitchX THEN wStatusX := wStatusX OR WORD#16#8000; END_IF;
+arReg_data[33] := WORD_TO_INT(wStatusX);
+arReg_data[38] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorX));
+arReg_data[39] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorX, 16)));
+
+fbStatusY(
+    Axis := AXIS_Y,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorY,
+    ErrorID =&gt; ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorY,
+);
+
+// Y 轴错误号单独从 MC_ReadAxisError 输出到 DWORD，再拆成两个 16 位寄存器。
+fbAxisErrorY(
+    Axis := AXIS_Y,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; ,
+    ErrorID =&gt; ,
+    AxisError =&gt; bAxisErrorY,
+    AxisErrorID =&gt; dwAxisErrorY,
+    SWEndSwitchActive =&gt; bSwEndSwitchY
+);
+IF NOT bAxisErrorY THEN
+    dwAxisErrorY := DWORD#0;
+END_IF;
+
+wStatusY := WORD#0;
+IF fbStatusY.Disabled THEN wStatusY := wStatusY OR WORD#16#0001; END_IF;
+IF fbStatusY.Errorstop THEN wStatusY := wStatusY OR WORD#16#0002; END_IF;
+IF fbStatusY.Stopping THEN wStatusY := wStatusY OR WORD#16#0004; END_IF;
+IF fbStatusY.StandStill THEN wStatusY := wStatusY OR WORD#16#0008; END_IF;
+IF fbStatusY.DiscreteMotion THEN wStatusY := wStatusY OR WORD#16#0010; END_IF;
+IF fbStatusY.ContinuousMotion THEN wStatusY := wStatusY OR WORD#16#0020; END_IF;
+IF fbStatusY.SynchronizedMotion THEN wStatusY := wStatusY OR WORD#16#0040; END_IF;
+IF fbStatusY.Homing THEN wStatusY := wStatusY OR WORD#16#0080; END_IF;
+IF fbStatusY.ConstantVelocity THEN wStatusY := wStatusY OR WORD#16#0100; END_IF;
+IF fbStatusY.Accelerating THEN wStatusY := wStatusY OR WORD#16#0200; END_IF;
+IF fbStatusY.Decelerating THEN wStatusY := wStatusY OR WORD#16#0400; END_IF;
+IF bStatusErrorY THEN wStatusY := wStatusY OR WORD#16#0800; END_IF;
+IF bStatusFBErrorY THEN wStatusY := wStatusY OR WORD#16#1000; END_IF;
+IF bAxisErrorY THEN wStatusY := wStatusY OR WORD#16#4000; END_IF;
+IF bSwEndSwitchY THEN wStatusY := wStatusY OR WORD#16#8000; END_IF;
+arReg_data[34] := WORD_TO_INT(wStatusY);
+arReg_data[40] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorY));
+arReg_data[41] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorY, 16)));
+
+fbStatusZ(
+    Axis := AXIS_Z,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorZ,
+    ErrorID =&gt; ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorZ,
+);
+
+// Z 轴错误号反馈。
+fbAxisErrorZ(
+    Axis := AXIS_Z,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; ,
+    ErrorID =&gt; ,
+    AxisError =&gt; bAxisErrorZ,
+    AxisErrorID =&gt; dwAxisErrorZ,
+    SWEndSwitchActive =&gt; bSwEndSwitchZ
+);
+IF NOT bAxisErrorZ THEN
+    dwAxisErrorZ := DWORD#0;
+END_IF;
+
+wStatusZ := WORD#0;
+IF fbStatusZ.Disabled THEN wStatusZ := wStatusZ OR WORD#16#0001; END_IF;
+IF fbStatusZ.Errorstop THEN wStatusZ := wStatusZ OR WORD#16#0002; END_IF;
+IF fbStatusZ.Stopping THEN wStatusZ := wStatusZ OR WORD#16#0004; END_IF;
+IF fbStatusZ.StandStill THEN wStatusZ := wStatusZ OR WORD#16#0008; END_IF;
+IF fbStatusZ.DiscreteMotion THEN wStatusZ := wStatusZ OR WORD#16#0010; END_IF;
+IF fbStatusZ.ContinuousMotion THEN wStatusZ := wStatusZ OR WORD#16#0020; END_IF;
+IF fbStatusZ.SynchronizedMotion THEN wStatusZ := wStatusZ OR WORD#16#0040; END_IF;
+IF fbStatusZ.Homing THEN wStatusZ := wStatusZ OR WORD#16#0080; END_IF;
+IF fbStatusZ.ConstantVelocity THEN wStatusZ := wStatusZ OR WORD#16#0100; END_IF;
+IF fbStatusZ.Accelerating THEN wStatusZ := wStatusZ OR WORD#16#0200; END_IF;
+IF fbStatusZ.Decelerating THEN wStatusZ := wStatusZ OR WORD#16#0400; END_IF;
+IF bStatusErrorZ THEN wStatusZ := wStatusZ OR WORD#16#0800; END_IF;
+IF bStatusFBErrorZ THEN wStatusZ := wStatusZ OR WORD#16#1000; END_IF;
+IF bAxisErrorZ THEN wStatusZ := wStatusZ OR WORD#16#4000; END_IF;
+IF bSwEndSwitchZ THEN wStatusZ := wStatusZ OR WORD#16#8000; END_IF;
+arReg_data[35] := WORD_TO_INT(wStatusZ);
+arReg_data[42] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorZ));
+arReg_data[43] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorZ, 16)));
+
+fbStatusB(
+    Axis := AXIS_B,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorB,
+    ErrorID =&gt; ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorB,
+);
+
+// B 轴错误号反馈。
+fbAxisErrorB(
+    Axis := AXIS_B,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; ,
+    ErrorID =&gt; ,
+    AxisError =&gt; bAxisErrorB,
+    AxisErrorID =&gt; dwAxisErrorB,
+    SWEndSwitchActive =&gt; bSwEndSwitchB
+);
+IF NOT bAxisErrorB THEN
+    dwAxisErrorB := DWORD#0;
+END_IF;
+
+wStatusB := WORD#0;
+IF fbStatusB.Disabled THEN wStatusB := wStatusB OR WORD#16#0001; END_IF;
+IF fbStatusB.Errorstop THEN wStatusB := wStatusB OR WORD#16#0002; END_IF;
+IF fbStatusB.Stopping THEN wStatusB := wStatusB OR WORD#16#0004; END_IF;
+IF fbStatusB.StandStill THEN wStatusB := wStatusB OR WORD#16#0008; END_IF;
+IF fbStatusB.DiscreteMotion THEN wStatusB := wStatusB OR WORD#16#0010; END_IF;
+IF fbStatusB.ContinuousMotion THEN wStatusB := wStatusB OR WORD#16#0020; END_IF;
+IF fbStatusB.SynchronizedMotion THEN wStatusB := wStatusB OR WORD#16#0040; END_IF;
+IF fbStatusB.Homing THEN wStatusB := wStatusB OR WORD#16#0080; END_IF;
+IF fbStatusB.ConstantVelocity THEN wStatusB := wStatusB OR WORD#16#0100; END_IF;
+IF fbStatusB.Accelerating THEN wStatusB := wStatusB OR WORD#16#0200; END_IF;
+IF fbStatusB.Decelerating THEN wStatusB := wStatusB OR WORD#16#0400; END_IF;
+IF bStatusErrorB THEN wStatusB := wStatusB OR WORD#16#0800; END_IF;
+IF bStatusFBErrorB THEN wStatusB := wStatusB OR WORD#16#1000; END_IF;
+IF bAxisErrorB THEN wStatusB := wStatusB OR WORD#16#4000; END_IF;
+IF bSwEndSwitchB THEN wStatusB := wStatusB OR WORD#16#8000; END_IF;
+arReg_data[36] := WORD_TO_INT(wStatusB);
+arReg_data[44] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorB));
+arReg_data[45] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorB, 16)));
+
+fbStatusC(
+    Axis := AXIS_C,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorC,
+    ErrorID =&gt; ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorC,
+);
+
+// C 轴错误号反馈。
+fbAxisErrorC(
+    Axis := AXIS_C,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; ,
+    ErrorID =&gt; ,
+    AxisError =&gt; bAxisErrorC,
+    AxisErrorID =&gt; dwAxisErrorC,
+    SWEndSwitchActive =&gt; bSwEndSwitchC
+);
+IF NOT bAxisErrorC THEN
+    dwAxisErrorC := DWORD#0;
+END_IF;
+
+wStatusC := WORD#0;
+IF fbStatusC.Disabled THEN wStatusC := wStatusC OR WORD#16#0001; END_IF;
+IF fbStatusC.Errorstop THEN wStatusC := wStatusC OR WORD#16#0002; END_IF;
+IF fbStatusC.Stopping THEN wStatusC := wStatusC OR WORD#16#0004; END_IF;
+IF fbStatusC.StandStill THEN wStatusC := wStatusC OR WORD#16#0008; END_IF;
+IF fbStatusC.DiscreteMotion THEN wStatusC := wStatusC OR WORD#16#0010; END_IF;
+IF fbStatusC.ContinuousMotion THEN wStatusC := wStatusC OR WORD#16#0020; END_IF;
+IF fbStatusC.SynchronizedMotion THEN wStatusC := wStatusC OR WORD#16#0040; END_IF;
+IF fbStatusC.Homing THEN wStatusC := wStatusC OR WORD#16#0080; END_IF;
+IF fbStatusC.ConstantVelocity THEN wStatusC := wStatusC OR WORD#16#0100; END_IF;
+IF fbStatusC.Accelerating THEN wStatusC := wStatusC OR WORD#16#0200; END_IF;
+IF fbStatusC.Decelerating THEN wStatusC := wStatusC OR WORD#16#0400; END_IF;
+IF bStatusErrorC THEN wStatusC := wStatusC OR WORD#16#0800; END_IF;
+IF bStatusFBErrorC THEN wStatusC := wStatusC OR WORD#16#1000; END_IF;
+IF bAxisErrorC THEN wStatusC := wStatusC OR WORD#16#4000; END_IF;
+IF bSwEndSwitchC THEN wStatusC := wStatusC OR WORD#16#8000; END_IF;
+arReg_data[37] := WORD_TO_INT(wStatusC);
+arReg_data[46] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorC));
+arReg_data[47] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorC, 16)));
+</xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+    <pou name="FiveDOF_Platform_PRG" pouType="program">
+                <interface>
+                  <localVars>
+                    <variable name="final_angle">
+                      <type>
+                        <array>
+                          <dimension lower="1" upper="AXIS_COUNT" />
+                          <baseType>
+                            <LREAL />
+                          </baseType>
+                        </array>
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml"> 最终目标</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="final_vel">
+                      <type>
+                        <array>
+                          <dimension lower="1" upper="AXIS_COUNT" />
+                          <baseType>
+                            <LREAL />
+                          </baseType>
+                        </array>
+                      </type>
+                    </variable>
+                    <variable name="fbMove_2">
+                      <type>
+                        <derived name="FB_5DOF_Platform_Move" />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml"> 功能块实例</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="trig_start">
+                      <type>
+                        <derived name="R_TRIG" />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml"> 触发边沿检测</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="i">
+                      <type>
+                        <INT />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml"> 辅助</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="log_msg">
+                      <type>
+                        <string length="255" />
+                      </type>
+                    </variable>
+                    <variable name="logfb">
+                      <type>
+                        <derived name="Syslog_FB" />
+                      </type>
+                    </variable>
+                  </localVars>
+                </interface>
+                <body>
+                  <ST>
+                    <xhtml xmlns="http://www.w3.org/1999/xhtml">
+// --------------------------------------------------
+// 主逻辑
+// --------------------------------------------------
+// 五轴使能由 AxisEnableControl_PRG 根据 arReg_data[32] 统一控制。
+// 这里不再每周期强制 TRUE，避免覆盖寄存器关闭使能命令。
+arAi_data[9]:=bfiveDOF_state;
+// 检测外部移动指令
+trig_start(CLK := Move_5Axis_Sign=1);
+IF trig_start.Q THEN
+
+	log_msg := 'five-axis platform starts moving';
+// 	logfb(write:=TRUE,sFileTestString:=log_msg);
+	AppendLog(log_msg);
+
+    // 使能所有轴（可放在这里一次性使能）
+	bfiveDOF_state:=1;//开始运动
+    AppendLog('status 0:6-axis start move' );
+    step := 10;   // 开始安全顺序
+END_IF
+
+CASE step OF
+    0: // 空闲
+		bfiveDOF_state:=0;//开始运动
+    // ---------- 阶段1：轴移动到目标 ----------
+    10:
+		FOR i := 1 TO AXIS_COUNT DO
+			final_angle[i] := PlatformTargetAngle[i];
+			final_vel[i]   := 360*6000/60;
+			Axes[i].AxisDone := FALSE;  
+			GVL.Axes[i].NeedMoveAxis := TRUE;
+		END_FOR
+        fbMove_2(AxisAngle := final_angle, AxisVel := final_vel, Execute := TRUE,Monitor:=TRUE);
+        step := 20;
+
+		log_msg := 'State 20: Start moving XYABC AXIS... ';
+// 		logfb(write:=TRUE,sFileTestString:=log_msg);
+		AppendLog(log_msg);;
+    20:
+        fbMove_2(AxisAngle := final_angle, AxisVel := final_vel, Execute := FALSE,Monitor:=TRUE);
+        IF fbMove_2.allDone THEN
+			log_msg := 'State 21: XYZABC AXIS movement completed';
+// 			logfb(write:=TRUE,sFileTestString:=log_msg);
+			AppendLog(log_msg);
+        ELSIF fbMove_2.Error THEN
+            bfiveDOF_state:=2;
+        END_IF
+		step := 0;
+
+        
+        
+END_CASE</xhtml>
+                  </ST>
+                </body>
+                <addData />
+              </pou>
+            </pous></types><instances><configurations><configuration name="Device"><resource name="Application"><task name="MainTask" interval="PT0.005S" priority="1"><pouInstance name="FiveDOF_Platform_PRG" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><pouInstance name="LogConsumer" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><pouInstance name="PLC_PRG" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><pouInstance name="AxisStatusFeedback_PRG" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><pouInstance name="AxisEnableControl_PRG" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><pouInstance name="ModbusTcpSlave" typeName=""><documentation><xhtml xmlns="http://www.w3.org/1999/xhtml" /></documentation></pouInstance><addData><data name="http://www.3s-software.com/plcopenxml/tasksettings" handleUnknown="implementation"><TaskSettings KindOfTask="Cyclic" Interval="5" IntervalUnit="ms" WithinSPSTimeSlicing="true" /></data></addData></task></resource></configuration></configurations></instances></project>

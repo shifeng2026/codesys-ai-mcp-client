@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 本地客户端启动中</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #162033;
+      --muted: #667085;
+      --line: #d9e0ea;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+    }
+
+    main {
+      width: min(420px, calc(100vw - 40px));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 22px;
+      box-shadow: 0 18px 40px rgba(17, 24, 39, 0.10);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .bar {
+      height: 12px;
+      margin-top: 20px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e8edf5;
+      border: 1px solid var(--line);
+    }
+
+    .fill {
+      width: 10%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+      transition: width 180ms ease;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    button {
+      width: 100%;
+      height: 38px;
+      margin-top: 18px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      display: none;
+    }
+
+    button.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Codex 本地客户端启动中</h1>
+    <p id="message">正在启动本地服务，完成后会自动进入客户端。</p>
+    <div class="bar" aria-label="启动进度">
+      <div id="fill" class="fill"></div>
+    </div>
+    <div class="meta">
+      <span id="stateText">准备中</span>
+      <span id="percentText">10%</span>
+    </div>
+    <button id="openButton" type="button">打开客户端</button>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("target") || "http://127.0.0.1:5177/";
+    const apiBase = target.replace(/\/$/, "");
+    const fill = document.querySelector("#fill");
+    const percentText = document.querySelector("#percentText");
+    const stateText = document.querySelector("#stateText");
+    const message = document.querySelector("#message");
+    const openButton = document.querySelector("#openButton");
+    let progress = 10;
+    let attempts = 0;
+
+    function setProgress(value, state) {
+      progress = Math.max(progress, Math.min(100, value));
+      fill.style.width = `${progress}%`;
+      percentText.textContent = `${Math.round(progress)}%`;
+      if (state) {
+        stateText.textContent = state;
+      }
+    }
+
+    function openClient() {
+      window.location.href = target;
+    }
+
+    async function poll() {
+      attempts += 1;
+      setProgress(Math.min(88, 10 + attempts * 4), "连接本地服务");
+      try {
+        const response = await fetch(`${apiBase}/api/status`, { cache: "no-store" });
+        if (response.ok) {
+          setProgress(100, "启动完成");
+          message.textContent = "本地服务已就绪，正在进入客户端。";
+          window.setTimeout(openClient, 250);
+          return;
+        }
+      } catch {
+        // The local server is still starting.
+      }
+
+      if (attempts >= 75) {
+        stateText.textContent = "等待超时";
+        message.textContent = "本地服务启动较慢，可以继续等待，或手动打开客户端。";
+        openButton.classList.add("visible");
+      }
+      window.setTimeout(poll, 400);
+    }
+
+    openButton.addEventListener("click", openClient);
+    window.setTimeout(poll, 200);
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "codex-local-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Chinese web client for Codex CLI.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

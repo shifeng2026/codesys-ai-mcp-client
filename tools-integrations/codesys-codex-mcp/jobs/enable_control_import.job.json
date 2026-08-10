@@ -1,0 +1,10 @@
+{
+  "resultPath": "C:\\Users\\29925\\AppData\\Local\\Temp\\codesys-codex-mcp\\jobs\\enable_control_import_fulltask_v3.result.json",
+  "arguments": {
+    "projectPath": "C:\\path\\FiveDofPlatform_enable_control.project",
+    "importPath": "C:\\Users\\29925\\codesys-codex-mcp\\imports\\AxisEnableControl.fulltask.import.xml",
+    "taskName": "MainTask",
+    "callName": "AxisEnableControl_PRG",
+    "beforeName": "ModbusTcpSlave"
+  }
+}

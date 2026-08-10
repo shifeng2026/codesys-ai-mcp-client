@@ -1,0 +1,1783 @@
+<?xml version='1.0' encoding='utf-8'?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200"><fileHeader companyName="" productName="CODESYS" productVersion="CODESYS V3.5 SP20 Patch 4" creationDateTime="2026-08-01T13:29:29" /><contentHeader name="FiveDofPlatform_v26084.jog_reset.import.xml" modificationDateTime="2026-08-01T13:29:29"><coordinateInfo><fbd><scaling x="1" y="1" /></fbd><ld><scaling x="1" y="1" /></ld><sfc><scaling x="1" y="1" /></sfc></coordinateInfo></contentHeader><types><dataTypes /><pous><pou name="ModbusTcpSlave" pouType="program">
+                <interface>
+                  <localVars constant="true">
+                    <variable name="aAngleFactor">
+                      <type>
+                        <array>
+                          <dimension lower="1" upper="GVL.AXIS_COUNT" />
+                          <baseType>
+                            <REAL />
+                          </baseType>
+                        </array>
+                      </type>
+                      <initialValue>
+                        <arrayValue>
+                          <value>
+                            <simpleValue value="(360.0 / 26.0)" />
+                          </value>
+                          <value>
+                            <simpleValue value="(360.0 / 5.0)" />
+                          </value>
+                          <value>
+                            <simpleValue value="(360.0 / 5.0)" />
+                          </value>
+                          <value>
+                            <simpleValue value="1" />
+                          </value>
+                          <value>
+                            <simpleValue value="1" />
+                          </value>
+                        </arrayValue>
+                      </initialValue>
+                    </variable>
+                  </localVars>
+                  <localVars>
+                    <variable name="modTcpSlaveInit">
+                      <type>
+                        <derived name="gcan.FB_ModbusTCP_Slave_Init" />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">Modbus TCP Slave初始化功能块</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="modTcpSlaveCtrl">
+                      <type>
+                        <derived name="gcan.FB_ModbusTCP_Slave_Ctrl" />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">Modbus TCP Slave执行功能块</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="eout">
+                      <type>
+                        <BOOL />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">用于承接功能块中完成标志引脚数据的变量</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="iSocket">
+                      <type>
+                        <INT />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">用于存放自身socket</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="uiErr">
+                      <type>
+                        <UINT />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">用于承接功能块中报错引脚错误信息的变量</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="isInit">
+                      <type>
+                        <BOOL />
+                      </type>
+                      <initialValue>
+                        <simpleValue value="FALSE" />
+                      </initialValue>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">用于初始化执行一次的逻辑变量</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="arClient">
+                      <type>
+                        <array>
+                          <dimension lower="0" upper="10" />
+                          <baseType>
+                            <INT />
+                          </baseType>
+                        </array>
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">用于存放Client即主站的socket</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="btargetAngleChange">
+                      <type>
+                        <BOOL />
+                      </type>
+                      <initialValue>
+                        <simpleValue value="FALSE" />
+                      </initialValue>
+                    </variable>
+                    <variable name="OldTargetAngle">
+                      <type>
+                        <WORD />
+                      </type>
+                    </variable>
+                    <variable name="enCtr">
+                      <type>
+                        <BOOL />
+                      </type>
+                      <initialValue>
+                        <simpleValue value="FALSE" />
+                      </initialValue>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">Modbus TCP Slave执行功能块使能变量</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="iTemp">
+                      <type>
+                        <INT />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">临时变量，用于32位数据转换</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="dwAngle">
+                      <type>
+                        <INT />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">32位临时存储，用于组合角度寄存器</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="i">
+                      <type>
+                        <INT />
+                      </type>
+                    </variable>
+                    <variable name="wTemp">
+                      <type>
+                        <WORD />
+                      </type>
+                      <documentation>
+                        <xhtml xmlns="http://www.w3.org/1999/xhtml">modbuslog</xhtml>
+                      </documentation>
+                    </variable>
+                    <variable name="sCurLog">
+                      <type>
+                        <string length="100" />
+                      </type>
+                    </variable>
+                    <variable name="iLen">
+                      <type>
+                        <INT />
+                      </type>
+                    </variable>
+                    <variable name="pCurEntry">
+                      <type>
+                        <pointer>
+                          <baseType>
+                            <derived name="LogEntry" />
+                          </baseType>
+                        </pointer>
+                      </type>
+                    </variable>
+                    <variable name="iCharIdx">
+                      <type>
+                        <INT />
+                      </type>
+                    </variable>
+                    <variable name="iRegIdx">
+                      <type>
+                        <INT />
+                      </type>
+                    </variable>
+                  </localVars>
+                </interface>
+                <body>
+                  <ST>
+                    <xhtml xmlns="http://www.w3.org/1999/xhtml">// ================================
+// 日志映射部分：将当前未读日志填充到保持寄存器
+// ================================
+IF g_LogBuffer.count &gt; 0 THEN
+    // 获取当前读指针指向的日志条目
+    pCurEntry := ADR(g_LogBuffer.entries[g_LogBuffer.readIdx]);
+    sCurLog := pCurEntry^.sMessage;
+    iLen := pCurEntry^.length;
+    
+    // 地址100：日志长度（WORD）
+    arReg_data[100] := INT_TO_WORD(iLen);
+    
+    // 地址101-102：时间戳（低字，高字）
+    arReg_data[101] := DWORD_TO_WORD(pCurEntry^.timestamp AND 16#FFFF);
+    arReg_data[102] := DWORD_TO_WORD(SHR(pCurEntry^.timestamp, 16));
+    
+    // 清空字符串缓冲区寄存器（地址103 ~ 152，共50个WORD）
+    FOR i := 103 TO 152 DO
+        arReg_data[i] := 0;
+    END_FOR
+    
+    // ----- 将字符串每两个字符打包成一个 WORD -----
+    // 注意：你的环境中字符串索引从0开始（已验证）
+    iCharIdx := 0;      // 当前字符索引（从0开始）
+    iRegIdx := 103;     // 当前寄存器地址
+    WHILE iCharIdx &lt; iLen DO
+        // 低字节 = 第一个字符
+        wTemp := sCurLog[iCharIdx];
+        iCharIdx := iCharIdx + 1;
+        // 如果有下一个字符，放入高字节
+        IF iCharIdx &lt; iLen THEN
+            wTemp := wTemp OR SHL(sCurLog[iCharIdx], 8);
+            iCharIdx := iCharIdx + 1;
+        END_IF
+        arReg_data[iRegIdx] := wTemp;
+        iRegIdx := iRegIdx + 1;
+    END_WHILE
+ELSE
+    // 无未读日志，长度寄存器写0
+    arReg_data[100] := 0;
+END_IF
+
+// --------------------------------
+// 处理主站确认线圈（地址16）
+// --------------------------------
+IF arDo_data[16] THEN
+    IF g_LogBuffer.count &gt; 0 THEN
+        g_LogBuffer.readIdx := (g_LogBuffer.readIdx + 1) MOD g_LogBuffer.maxSize;
+        g_LogBuffer.count := g_LogBuffer.count - 1;
+    END_IF
+    arDo_data[16] := FALSE;
+END_IF
+
+
+
+IF isInit=FALSE THEN							
+
+	modtcpslaveinit(en_in:=TRUE,					//Modbus TCP Slave初始化功能块使能
+	xenable:=TRUE,									//使能初始化功能
+	iport:=502,										//开放端口号502
+	en_out=&gt;eout,									//Modbus TCP Slave初始化功能块执行完成
+	isocket=&gt;iSocket,								//创建的socket存入变量
+	uierror=&gt;uiErr);								//Modbus TCP Slave初始化功能块执行错误信息
+	
+	IF isocket&gt;=0 AND uiErr=0 THEN					//成功创建socket且无错误，逻辑标志置位，下周期执行ELSE
+		isInit:=TRUE;	
+		
+		enCtr:=FALSE;
+		ELSE                                        //等待连接成功
+		modtcpslaveinit(en_in:=0,xenable:=0);	
+	END_IF
+ 
+ELSE
+
+
+	// 循环读取电机位置
+	FOR i := 1 TO GVL.AXIS_COUNT DO
+		arAi_data[i] := INT_TO_WORD(REAL_TO_INT(Axes[i].ActualAngle/aAngleFactor[i]*10.0));
+	END_FOR
+	Move_5Axis_Sign:=arReg_data[0];
+	
+	
+	// 循环处理前7个通道（目标角度数组）
+	IF 	bfiveDOF_state =0 THEN
+		FOR i := 1 TO GVL.AXIS_COUNT DO
+			dwAngle := WORD_TO_INT(arReg_data[i]);      // 有符号原始值
+			PlatformTargetAngle[i] := dwAngle * aAngleFactor[i];
+		END_FOR
+
+	END_IF
+
+  // arReg_data[19] 是点动总开关位图，bit0..bit4=X/Y/Z/B/C。
+  xJogMode[1] := (arReg_data[19] AND WORD#16#0001) &lt;&gt; WORD#0; // X
+  xJogMode[2] := (arReg_data[19] AND WORD#16#0002) &lt;&gt; WORD#0; // Y
+  xJogMode[3] := (arReg_data[19] AND WORD#16#0004) &lt;&gt; WORD#0; // Z
+  xJogMode[4] := (arReg_data[19] AND WORD#16#0008) &lt;&gt; WORD#0; // B
+  xJogMode[5] := (arReg_data[19] AND WORD#16#0010) &lt;&gt; WORD#0; // C
+
+  // arReg_data[6..15] 是五轴点动方向命令。
+  // 方向命令必须同时满足 arReg_data[19] 对应点动总开关位，避免单独残留方向寄存器导致误点动。
+  xJogFwd[1] := xJogMode[1] AND (arReg_data[6] &lt;&gt; WORD#0);
+  xJogRev[1] := xJogMode[1] AND (arReg_data[7] &lt;&gt; WORD#0);
+
+  xJogFwd[2] := xJogMode[2] AND (arReg_data[8] &lt;&gt; WORD#0);
+  xJogRev[2] := xJogMode[2] AND (arReg_data[9] &lt;&gt; WORD#0);
+
+  xJogFwd[3] := xJogMode[3] AND (arReg_data[10] &lt;&gt; WORD#0);
+  xJogRev[3] := xJogMode[3] AND (arReg_data[11] &lt;&gt; WORD#0);
+
+  xJogFwd[4] := xJogMode[4] AND (arReg_data[12] &lt;&gt; WORD#0);
+  xJogRev[4] := xJogMode[4] AND (arReg_data[13] &lt;&gt; WORD#0);
+
+  xJogFwd[5] := xJogMode[5] AND (arReg_data[14] &lt;&gt; WORD#0);
+  xJogRev[5] := xJogMode[5] AND (arReg_data[15] &lt;&gt; WORD#0);
+	modtcpslavectrl(en_in:=enCtr,					//Modbus TCP Slave执行功能块使能
+	xenable:=TRUE,									//Modbus TCP Slave执行功能使能
+	isocket:=isocket,								//输入创建的socket
+	dwatchdogtime:=2000,							//看门狗时间
+	p_clientsocket:=ADR(arClient),					//将连接进来的socket存放到数组
+	imaxclientcount:=10,							//设置最大连接数量
+	uido_number:=17,uido_startaddr:=0,pdo_data:=ADR(arDo_data),		//uido_number设定线圈个数，uido_startaddr设定线圈起始地址，数据存放在arDo_data数组
+	uidi_number:=16,uidi_startaddr:=0,pdi_data:=ADR(arDi_data),		//uidi_number设定离散型数据个数，uidi_startaddr设定离散型数据起始地址，数据存放在arDi_data数组
+	uireg_number:=200,uireg_startaddr:=0,preg_data:=ADR(arReg_data), //uireg_number设定保持型寄存器个数，uireg_startaddr设定保持型寄存器起始地址，数据存放在arReg_data数组
+	uiai_number:=16,uiai_startaddr:=0,pai_data:=ADR(arAi_data),		//uiai_number设定输入型寄存器个数，uiai_startaddr设定输入型寄存器起始地址，数据存放在arAi_data数组
+	en_out=&gt;eout,									//Modbus TCP Slave执行功能块执行完成
+	uierror=&gt;uierr);								//Modbus TCP Slave执行功能块执行错误信息
+	enctr:=TRUE;
+	IF uierr &lt;&gt;0 THEN                               //如果从站报错，则重新连接从站
+		modtcpslaveinit(en_in:=0,xenable:=0);	
+		isInit:=0;
+	END_IF
+END_IF
+
+ 
+// 释放锁
+g_LogLock := FALSE;
+ </xhtml>
+                  </ST>
+                </body>
+                <addData />
+              </pou>
+            <pou name="AxisStatusFeedback_PRG" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbStatusX">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorX">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusY">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorY">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusZ">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorZ">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusB">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorB">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="fbStatusC">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadStatus" />
+              </type>
+            </variable>
+            <variable name="fbAxisErrorC">
+              <type>
+                <derived name="Sm3_Basic.MC_ReadAxisError" />
+              </type>
+            </variable>
+            <variable name="wStatusX">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusY">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusZ">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusB">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusC">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorX">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorY">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorZ">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorB">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="dwAxisErrorC">
+              <type>
+                <DWORD />
+              </type>
+            </variable>
+            <variable name="bStatusErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bStatusFBErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bAxisErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bSwEndSwitchC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="eStatusErrorX">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="eAxisReadErrorX">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="bAxisReadErrorX">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="eStatusErrorY">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="eAxisReadErrorY">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="bAxisReadErrorY">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="eStatusErrorZ">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="eAxisReadErrorZ">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="bAxisReadErrorZ">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="eStatusErrorB">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="eAxisReadErrorB">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="bAxisReadErrorB">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="eStatusErrorC">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="eAxisReadErrorC">
+              <type>
+                <derived name="SMC_ERROR" />
+              </type>
+            </variable>
+            <variable name="bAxisReadErrorC">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="wEnableMismatchFeedback">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusErrorFeedback">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wAxisReadErrorFeedback">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+            <variable name="wStatusFBErrorFeedback">
+              <type>
+                <WORD />
+              </type>
+            </variable>
+          </localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+// 本程序只做反馈和诊断，不直接控制轴运动。
+// [32] 五轴总使能命令。
+// [33..37] 五轴状态字。
+// [38..47] 五轴驱动 AxisErrorID，来自 MC_ReadAxisError.AxisErrorID。
+// [48] 五轴 AxisEnable 请求反馈。
+// [49..58] 五轴 MC_ReadStatus.ErrorID。
+// [59..68] 五轴 MC_ReadAxisError.ErrorID。
+// [69..78] 五轴 MC_Power.ErrorID，由各单轴程序写入。
+// [79..83] 五轴 MC_Power 诊断字，bit0=Status，bit1=Error。
+// [84] 诊断版本号，26084 表示 v26084 诊断版已生效。
+// [85] 使能请求 TRUE 但 MC_ReadStatus 仍 Disabled 的位图。
+// [86] MC_ReadStatus.Error 位图。
+// [87] MC_ReadAxisError.Error 位图。
+// [88] MC_ReadStatus.FBErrorOccured 位图。
+
+fbStatusX(
+    Axis := AXIS_X,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorX,
+    ErrorID =&gt; eStatusErrorX,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorX,
+);
+
+// MC_ReadAxisError.AxisErrorID 只表示驱动轴本体错误号。
+// 如果网线断开导致 MC_ReadAxisError 自己报 Error，错误号会写到 arReg_data[59..60]。
+fbAxisErrorX(
+    Axis := AXIS_X,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bAxisReadErrorX,
+    ErrorID =&gt; eAxisReadErrorX,
+    AxisError =&gt; bAxisErrorX,
+    AxisErrorID =&gt; dwAxisErrorX,
+    SWEndSwitchActive =&gt; bSwEndSwitchX
+);
+IF NOT bAxisErrorX THEN
+    // 没有驱动轴本体错误时清零 AxisErrorID，但不清零各功能块自己的 ErrorID。
+    dwAxisErrorX := DWORD#0;
+END_IF;
+
+// 把 X 轴 BOOL 状态压缩成一个 WORD 状态字输出到 arReg_data[33]。
+// 主状态字只放轴状态和轴本体错误，不再混入 MC_ReadStatus 功能块自己的 Error 位。
+// MC_ReadStatus.ErrorID 单独放到 arReg_data[49..50]，
+// MC_ReadStatus.Error 汇总位单独放到 arReg_data[86]，避免 Python 默认状态一直显示“功能块错误”。
+wStatusX := WORD#0;
+IF fbStatusX.Disabled THEN wStatusX := wStatusX OR WORD#16#0001; END_IF;
+IF fbStatusX.Errorstop THEN wStatusX := wStatusX OR WORD#16#0002; END_IF;
+IF fbStatusX.Stopping THEN wStatusX := wStatusX OR WORD#16#0004; END_IF;
+IF fbStatusX.StandStill THEN wStatusX := wStatusX OR WORD#16#0008; END_IF;
+IF fbStatusX.DiscreteMotion THEN wStatusX := wStatusX OR WORD#16#0010; END_IF;
+IF fbStatusX.ContinuousMotion THEN wStatusX := wStatusX OR WORD#16#0020; END_IF;
+IF fbStatusX.SynchronizedMotion THEN wStatusX := wStatusX OR WORD#16#0040; END_IF;
+IF fbStatusX.Homing THEN wStatusX := wStatusX OR WORD#16#0080; END_IF;
+IF fbStatusX.ConstantVelocity THEN wStatusX := wStatusX OR WORD#16#0100; END_IF;
+IF fbStatusX.Accelerating THEN wStatusX := wStatusX OR WORD#16#0200; END_IF;
+IF fbStatusX.Decelerating THEN wStatusX := wStatusX OR WORD#16#0400; END_IF;
+IF bAxisErrorX THEN wStatusX := wStatusX OR WORD#16#4000; END_IF;
+IF bSwEndSwitchX THEN wStatusX := wStatusX OR WORD#16#8000; END_IF;
+arReg_data[33] := WORD_TO_INT(wStatusX);
+
+// arReg_data[38..39] 保存 X 轴驱动 AxisErrorID。
+arReg_data[38] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorX));
+arReg_data[39] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorX, 16)));
+
+// arReg_data[49..50] 保存 X 轴 MC_ReadStatus.ErrorID。
+arReg_data[49] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eStatusErrorX)));
+arReg_data[50] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eStatusErrorX), 16)));
+
+// arReg_data[59..60] 保存 X 轴 MC_ReadAxisError.ErrorID。
+arReg_data[59] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eAxisReadErrorX)));
+arReg_data[60] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eAxisReadErrorX), 16)));
+
+fbStatusY(
+    Axis := AXIS_Y,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorY,
+    ErrorID =&gt; eStatusErrorY,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorY,
+);
+
+// MC_ReadAxisError.AxisErrorID 只表示驱动轴本体错误号。
+// 如果网线断开导致 MC_ReadAxisError 自己报 Error，错误号会写到 arReg_data[61..62]。
+fbAxisErrorY(
+    Axis := AXIS_Y,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bAxisReadErrorY,
+    ErrorID =&gt; eAxisReadErrorY,
+    AxisError =&gt; bAxisErrorY,
+    AxisErrorID =&gt; dwAxisErrorY,
+    SWEndSwitchActive =&gt; bSwEndSwitchY
+);
+IF NOT bAxisErrorY THEN
+    // 没有驱动轴本体错误时清零 AxisErrorID，但不清零各功能块自己的 ErrorID。
+    dwAxisErrorY := DWORD#0;
+END_IF;
+
+// 把 Y 轴 BOOL 状态压缩成一个 WORD 状态字输出到 arReg_data[34]。
+// 主状态字只放轴状态和轴本体错误，不再混入 MC_ReadStatus 功能块自己的 Error 位。
+// MC_ReadStatus.ErrorID 单独放到 arReg_data[51..52]，
+// MC_ReadStatus.Error 汇总位单独放到 arReg_data[86]，避免 Python 默认状态一直显示“功能块错误”。
+wStatusY := WORD#0;
+IF fbStatusY.Disabled THEN wStatusY := wStatusY OR WORD#16#0001; END_IF;
+IF fbStatusY.Errorstop THEN wStatusY := wStatusY OR WORD#16#0002; END_IF;
+IF fbStatusY.Stopping THEN wStatusY := wStatusY OR WORD#16#0004; END_IF;
+IF fbStatusY.StandStill THEN wStatusY := wStatusY OR WORD#16#0008; END_IF;
+IF fbStatusY.DiscreteMotion THEN wStatusY := wStatusY OR WORD#16#0010; END_IF;
+IF fbStatusY.ContinuousMotion THEN wStatusY := wStatusY OR WORD#16#0020; END_IF;
+IF fbStatusY.SynchronizedMotion THEN wStatusY := wStatusY OR WORD#16#0040; END_IF;
+IF fbStatusY.Homing THEN wStatusY := wStatusY OR WORD#16#0080; END_IF;
+IF fbStatusY.ConstantVelocity THEN wStatusY := wStatusY OR WORD#16#0100; END_IF;
+IF fbStatusY.Accelerating THEN wStatusY := wStatusY OR WORD#16#0200; END_IF;
+IF fbStatusY.Decelerating THEN wStatusY := wStatusY OR WORD#16#0400; END_IF;
+IF bAxisErrorY THEN wStatusY := wStatusY OR WORD#16#4000; END_IF;
+IF bSwEndSwitchY THEN wStatusY := wStatusY OR WORD#16#8000; END_IF;
+arReg_data[34] := WORD_TO_INT(wStatusY);
+
+// arReg_data[40..41] 保存 Y 轴驱动 AxisErrorID。
+arReg_data[40] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorY));
+arReg_data[41] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorY, 16)));
+
+// arReg_data[51..52] 保存 Y 轴 MC_ReadStatus.ErrorID。
+arReg_data[51] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eStatusErrorY)));
+arReg_data[52] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eStatusErrorY), 16)));
+
+// arReg_data[61..62] 保存 Y 轴 MC_ReadAxisError.ErrorID。
+arReg_data[61] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eAxisReadErrorY)));
+arReg_data[62] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eAxisReadErrorY), 16)));
+
+fbStatusZ(
+    Axis := AXIS_Z,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorZ,
+    ErrorID =&gt; eStatusErrorZ,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorZ,
+);
+
+// MC_ReadAxisError.AxisErrorID 只表示驱动轴本体错误号。
+// 如果网线断开导致 MC_ReadAxisError 自己报 Error，错误号会写到 arReg_data[63..64]。
+fbAxisErrorZ(
+    Axis := AXIS_Z,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bAxisReadErrorZ,
+    ErrorID =&gt; eAxisReadErrorZ,
+    AxisError =&gt; bAxisErrorZ,
+    AxisErrorID =&gt; dwAxisErrorZ,
+    SWEndSwitchActive =&gt; bSwEndSwitchZ
+);
+IF NOT bAxisErrorZ THEN
+    // 没有驱动轴本体错误时清零 AxisErrorID，但不清零各功能块自己的 ErrorID。
+    dwAxisErrorZ := DWORD#0;
+END_IF;
+
+// 把 Z 轴 BOOL 状态压缩成一个 WORD 状态字输出到 arReg_data[35]。
+// 主状态字只放轴状态和轴本体错误，不再混入 MC_ReadStatus 功能块自己的 Error 位。
+// MC_ReadStatus.ErrorID 单独放到 arReg_data[53..54]，
+// MC_ReadStatus.Error 汇总位单独放到 arReg_data[86]，避免 Python 默认状态一直显示“功能块错误”。
+wStatusZ := WORD#0;
+IF fbStatusZ.Disabled THEN wStatusZ := wStatusZ OR WORD#16#0001; END_IF;
+IF fbStatusZ.Errorstop THEN wStatusZ := wStatusZ OR WORD#16#0002; END_IF;
+IF fbStatusZ.Stopping THEN wStatusZ := wStatusZ OR WORD#16#0004; END_IF;
+IF fbStatusZ.StandStill THEN wStatusZ := wStatusZ OR WORD#16#0008; END_IF;
+IF fbStatusZ.DiscreteMotion THEN wStatusZ := wStatusZ OR WORD#16#0010; END_IF;
+IF fbStatusZ.ContinuousMotion THEN wStatusZ := wStatusZ OR WORD#16#0020; END_IF;
+IF fbStatusZ.SynchronizedMotion THEN wStatusZ := wStatusZ OR WORD#16#0040; END_IF;
+IF fbStatusZ.Homing THEN wStatusZ := wStatusZ OR WORD#16#0080; END_IF;
+IF fbStatusZ.ConstantVelocity THEN wStatusZ := wStatusZ OR WORD#16#0100; END_IF;
+IF fbStatusZ.Accelerating THEN wStatusZ := wStatusZ OR WORD#16#0200; END_IF;
+IF fbStatusZ.Decelerating THEN wStatusZ := wStatusZ OR WORD#16#0400; END_IF;
+IF bAxisErrorZ THEN wStatusZ := wStatusZ OR WORD#16#4000; END_IF;
+IF bSwEndSwitchZ THEN wStatusZ := wStatusZ OR WORD#16#8000; END_IF;
+arReg_data[35] := WORD_TO_INT(wStatusZ);
+
+// arReg_data[42..43] 保存 Z 轴驱动 AxisErrorID。
+arReg_data[42] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorZ));
+arReg_data[43] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorZ, 16)));
+
+// arReg_data[53..54] 保存 Z 轴 MC_ReadStatus.ErrorID。
+arReg_data[53] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eStatusErrorZ)));
+arReg_data[54] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eStatusErrorZ), 16)));
+
+// arReg_data[63..64] 保存 Z 轴 MC_ReadAxisError.ErrorID。
+arReg_data[63] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eAxisReadErrorZ)));
+arReg_data[64] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eAxisReadErrorZ), 16)));
+
+fbStatusB(
+    Axis := AXIS_B,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorB,
+    ErrorID =&gt; eStatusErrorB,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorB,
+);
+
+// MC_ReadAxisError.AxisErrorID 只表示驱动轴本体错误号。
+// 如果网线断开导致 MC_ReadAxisError 自己报 Error，错误号会写到 arReg_data[65..66]。
+fbAxisErrorB(
+    Axis := AXIS_B,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bAxisReadErrorB,
+    ErrorID =&gt; eAxisReadErrorB,
+    AxisError =&gt; bAxisErrorB,
+    AxisErrorID =&gt; dwAxisErrorB,
+    SWEndSwitchActive =&gt; bSwEndSwitchB
+);
+IF NOT bAxisErrorB THEN
+    // 没有驱动轴本体错误时清零 AxisErrorID，但不清零各功能块自己的 ErrorID。
+    dwAxisErrorB := DWORD#0;
+END_IF;
+
+// 把 B 轴 BOOL 状态压缩成一个 WORD 状态字输出到 arReg_data[36]。
+// 主状态字只放轴状态和轴本体错误，不再混入 MC_ReadStatus 功能块自己的 Error 位。
+// MC_ReadStatus.ErrorID 单独放到 arReg_data[55..56]，
+// MC_ReadStatus.Error 汇总位单独放到 arReg_data[86]，避免 Python 默认状态一直显示“功能块错误”。
+wStatusB := WORD#0;
+IF fbStatusB.Disabled THEN wStatusB := wStatusB OR WORD#16#0001; END_IF;
+IF fbStatusB.Errorstop THEN wStatusB := wStatusB OR WORD#16#0002; END_IF;
+IF fbStatusB.Stopping THEN wStatusB := wStatusB OR WORD#16#0004; END_IF;
+IF fbStatusB.StandStill THEN wStatusB := wStatusB OR WORD#16#0008; END_IF;
+IF fbStatusB.DiscreteMotion THEN wStatusB := wStatusB OR WORD#16#0010; END_IF;
+IF fbStatusB.ContinuousMotion THEN wStatusB := wStatusB OR WORD#16#0020; END_IF;
+IF fbStatusB.SynchronizedMotion THEN wStatusB := wStatusB OR WORD#16#0040; END_IF;
+IF fbStatusB.Homing THEN wStatusB := wStatusB OR WORD#16#0080; END_IF;
+IF fbStatusB.ConstantVelocity THEN wStatusB := wStatusB OR WORD#16#0100; END_IF;
+IF fbStatusB.Accelerating THEN wStatusB := wStatusB OR WORD#16#0200; END_IF;
+IF fbStatusB.Decelerating THEN wStatusB := wStatusB OR WORD#16#0400; END_IF;
+IF bAxisErrorB THEN wStatusB := wStatusB OR WORD#16#4000; END_IF;
+IF bSwEndSwitchB THEN wStatusB := wStatusB OR WORD#16#8000; END_IF;
+arReg_data[36] := WORD_TO_INT(wStatusB);
+
+// arReg_data[44..45] 保存 B 轴驱动 AxisErrorID。
+arReg_data[44] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorB));
+arReg_data[45] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorB, 16)));
+
+// arReg_data[55..56] 保存 B 轴 MC_ReadStatus.ErrorID。
+arReg_data[55] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eStatusErrorB)));
+arReg_data[56] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eStatusErrorB), 16)));
+
+// arReg_data[65..66] 保存 B 轴 MC_ReadAxisError.ErrorID。
+arReg_data[65] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eAxisReadErrorB)));
+arReg_data[66] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eAxisReadErrorB), 16)));
+
+fbStatusC(
+    Axis := AXIS_C,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bStatusErrorC,
+    ErrorID =&gt; eStatusErrorC,
+    Disabled =&gt; ,
+    Errorstop =&gt; ,
+    Stopping =&gt; ,
+    StandStill =&gt; ,
+    DiscreteMotion =&gt; ,
+    ContinuousMotion =&gt; ,
+    SynchronizedMotion =&gt; ,
+    Homing =&gt; ,
+    ConstantVelocity =&gt; ,
+    Accelerating =&gt; ,
+    Decelerating =&gt; ,
+    FBErrorOccured =&gt; bStatusFBErrorC,
+);
+
+// MC_ReadAxisError.AxisErrorID 只表示驱动轴本体错误号。
+// 如果网线断开导致 MC_ReadAxisError 自己报 Error，错误号会写到 arReg_data[67..68]。
+fbAxisErrorC(
+    Axis := AXIS_C,
+    Enable := TRUE,
+    Valid =&gt; ,
+    Busy =&gt; ,
+    Error =&gt; bAxisReadErrorC,
+    ErrorID =&gt; eAxisReadErrorC,
+    AxisError =&gt; bAxisErrorC,
+    AxisErrorID =&gt; dwAxisErrorC,
+    SWEndSwitchActive =&gt; bSwEndSwitchC
+);
+IF NOT bAxisErrorC THEN
+    // 没有驱动轴本体错误时清零 AxisErrorID，但不清零各功能块自己的 ErrorID。
+    dwAxisErrorC := DWORD#0;
+END_IF;
+
+// 把 C 轴 BOOL 状态压缩成一个 WORD 状态字输出到 arReg_data[37]。
+// 主状态字只放轴状态和轴本体错误，不再混入 MC_ReadStatus 功能块自己的 Error 位。
+// MC_ReadStatus.ErrorID 单独放到 arReg_data[57..58]，
+// MC_ReadStatus.Error 汇总位单独放到 arReg_data[86]，避免 Python 默认状态一直显示“功能块错误”。
+wStatusC := WORD#0;
+IF fbStatusC.Disabled THEN wStatusC := wStatusC OR WORD#16#0001; END_IF;
+IF fbStatusC.Errorstop THEN wStatusC := wStatusC OR WORD#16#0002; END_IF;
+IF fbStatusC.Stopping THEN wStatusC := wStatusC OR WORD#16#0004; END_IF;
+IF fbStatusC.StandStill THEN wStatusC := wStatusC OR WORD#16#0008; END_IF;
+IF fbStatusC.DiscreteMotion THEN wStatusC := wStatusC OR WORD#16#0010; END_IF;
+IF fbStatusC.ContinuousMotion THEN wStatusC := wStatusC OR WORD#16#0020; END_IF;
+IF fbStatusC.SynchronizedMotion THEN wStatusC := wStatusC OR WORD#16#0040; END_IF;
+IF fbStatusC.Homing THEN wStatusC := wStatusC OR WORD#16#0080; END_IF;
+IF fbStatusC.ConstantVelocity THEN wStatusC := wStatusC OR WORD#16#0100; END_IF;
+IF fbStatusC.Accelerating THEN wStatusC := wStatusC OR WORD#16#0200; END_IF;
+IF fbStatusC.Decelerating THEN wStatusC := wStatusC OR WORD#16#0400; END_IF;
+IF bAxisErrorC THEN wStatusC := wStatusC OR WORD#16#4000; END_IF;
+IF bSwEndSwitchC THEN wStatusC := wStatusC OR WORD#16#8000; END_IF;
+arReg_data[37] := WORD_TO_INT(wStatusC);
+
+// arReg_data[46..47] 保存 C 轴驱动 AxisErrorID。
+arReg_data[46] := WORD_TO_INT(DWORD_TO_WORD(dwAxisErrorC));
+arReg_data[47] := WORD_TO_INT(DWORD_TO_WORD(SHR(dwAxisErrorC, 16)));
+
+// arReg_data[57..58] 保存 C 轴 MC_ReadStatus.ErrorID。
+arReg_data[57] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eStatusErrorC)));
+arReg_data[58] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eStatusErrorC), 16)));
+
+// arReg_data[67..68] 保存 C 轴 MC_ReadAxisError.ErrorID。
+arReg_data[67] := WORD_TO_INT(DWORD_TO_WORD(TO_DWORD(eAxisReadErrorC)));
+arReg_data[68] := WORD_TO_INT(DWORD_TO_WORD(SHR(TO_DWORD(eAxisReadErrorC), 16)));
+
+// 诊断版本号，Python 可用它判断 [49..88] 是否已由新版 PLC 代码写入。
+arReg_data[84] := 26084;
+
+// 使能请求不一致：AxisEnable 请求为 TRUE，但 MC_ReadStatus 仍显示 Disabled。
+wEnableMismatchFeedback := WORD#0;
+IF GVL.Axes[1].AxisEnable AND fbStatusX.Disabled THEN wEnableMismatchFeedback := wEnableMismatchFeedback OR WORD#16#0001; END_IF;
+IF GVL.Axes[2].AxisEnable AND fbStatusY.Disabled THEN wEnableMismatchFeedback := wEnableMismatchFeedback OR WORD#16#0002; END_IF;
+IF GVL.Axes[3].AxisEnable AND fbStatusZ.Disabled THEN wEnableMismatchFeedback := wEnableMismatchFeedback OR WORD#16#0004; END_IF;
+IF GVL.Axes[4].AxisEnable AND fbStatusB.Disabled THEN wEnableMismatchFeedback := wEnableMismatchFeedback OR WORD#16#0008; END_IF;
+IF GVL.Axes[5].AxisEnable AND fbStatusC.Disabled THEN wEnableMismatchFeedback := wEnableMismatchFeedback OR WORD#16#0010; END_IF;
+arReg_data[85] := WORD_TO_INT(wEnableMismatchFeedback);
+
+// 汇总 MC_ReadStatus 功能块错误位，便于 Python 在详细诊断模式判断是哪一个轴读状态失败。
+wStatusErrorFeedback := WORD#0;
+IF bStatusErrorX THEN wStatusErrorFeedback := wStatusErrorFeedback OR WORD#16#0001; END_IF;
+IF bStatusErrorY THEN wStatusErrorFeedback := wStatusErrorFeedback OR WORD#16#0002; END_IF;
+IF bStatusErrorZ THEN wStatusErrorFeedback := wStatusErrorFeedback OR WORD#16#0004; END_IF;
+IF bStatusErrorB THEN wStatusErrorFeedback := wStatusErrorFeedback OR WORD#16#0008; END_IF;
+IF bStatusErrorC THEN wStatusErrorFeedback := wStatusErrorFeedback OR WORD#16#0010; END_IF;
+arReg_data[86] := WORD_TO_INT(wStatusErrorFeedback);
+
+wAxisReadErrorFeedback := WORD#0;
+IF bAxisReadErrorX THEN wAxisReadErrorFeedback := wAxisReadErrorFeedback OR WORD#16#0001; END_IF;
+IF bAxisReadErrorY THEN wAxisReadErrorFeedback := wAxisReadErrorFeedback OR WORD#16#0002; END_IF;
+IF bAxisReadErrorZ THEN wAxisReadErrorFeedback := wAxisReadErrorFeedback OR WORD#16#0004; END_IF;
+IF bAxisReadErrorB THEN wAxisReadErrorFeedback := wAxisReadErrorFeedback OR WORD#16#0008; END_IF;
+IF bAxisReadErrorC THEN wAxisReadErrorFeedback := wAxisReadErrorFeedback OR WORD#16#0010; END_IF;
+arReg_data[87] := WORD_TO_INT(wAxisReadErrorFeedback);
+
+wStatusFBErrorFeedback := WORD#0;
+IF bStatusFBErrorX THEN wStatusFBErrorFeedback := wStatusFBErrorFeedback OR WORD#16#0001; END_IF;
+IF bStatusFBErrorY THEN wStatusFBErrorFeedback := wStatusFBErrorFeedback OR WORD#16#0002; END_IF;
+IF bStatusFBErrorZ THEN wStatusFBErrorFeedback := wStatusFBErrorFeedback OR WORD#16#0004; END_IF;
+IF bStatusFBErrorB THEN wStatusFBErrorFeedback := wStatusFBErrorFeedback OR WORD#16#0008; END_IF;
+IF bStatusFBErrorC THEN wStatusFBErrorFeedback := wStatusFBErrorFeedback OR WORD#16#0010; END_IF;
+arReg_data[88] := WORD_TO_INT(wStatusFBErrorFeedback);
+</xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+      <pou name="JogX" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbJogX">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="xServoEnable">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+          <variable name="xResetCmdReg"><type><BOOL /></type></variable></localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+
+ 
+
+
+
+ xJogMode[1] := (arReg_data[19] AND WORD#16#0001) &lt;&gt; WORD#0; // X
+ 
+  // ================================
+  // 5轴点动控制
+  // ================================
+
+
+  // arReg_data[89] 是五轴复位命令位图，bit0..bit4=X/Y/Z/B/C。
+  // Python 复位时写一个短脉冲；FB_ServoJog 内部用 R_TRIG 转成 MC_Reset 上升沿。
+  xResetCmdReg := (arReg_data[89] AND WORD#16#0001) &lt;&gt; WORD#0;
+
+  // 在 EtherCAT_Task 内直接解析点动总开关和方向命令。
+  // 这样 Jog 程序调用 FB_ServoJog 前，拿到的是本任务内最新的寄存器状态。
+  xJogMode[1] := (arReg_data[19] AND WORD#16#0001) &lt;&gt; WORD#0;
+  xJogFwd[1] := xJogMode[1] AND (arReg_data[6] &lt;&gt; WORD#0);
+  xJogRev[1] := xJogMode[1] AND (arReg_data[7] &lt;&gt; WORD#0);
+
+  // 点动侧使能跟随 arReg_data[32] 解析后的 GVL.Axes[1].AxisEnable。
+  // 五轴总关闭时，点动功能块不会继续用本地 TRUE 保持上使能。
+  xServoEnable := GVL.Axes[1].AxisEnable;
+
+  fbJogX(
+      Axis := AXIS_X,
+      xServoOn := xServoEnable,
+      xReset := xResetCmdReg,
+      xJogFwd := xJogFwd[1],
+      xJogRev := xJogRev[1],
+      xLimitFwd := FALSE,
+      xLimitRev := FALSE,
+      lrJogVel := 100.0,
+      lrAcc := 100.0,
+      lrDec := 200.0,
+      lrJerk := 0.0
+  );
+
+
+  // arReg_data[90] 反馈复位命令当前是否被 PLC 读到，bit0..bit4=X/Y/Z/B/C。
+  IF xResetCmdReg THEN
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) OR WORD#16#0001);
+ELSE
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[91] 反馈点动总开关 xJogMode，bit0..bit4=X/Y/Z/B/C。
+  IF xJogMode[1] THEN
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) OR WORD#16#0001);
+ELSE
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[92] 反馈进入 FB_ServoJog 前的正向点动命令。
+  IF xJogFwd[1] THEN
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) OR WORD#16#0001);
+ELSE
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[93] 反馈进入 FB_ServoJog 前的反向点动命令。
+  IF xJogRev[1] THEN
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) OR WORD#16#0001);
+ELSE
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[94] 反馈 FB_ServoJog.xReady，TRUE 表示点动功能块内部 MC_Power 已就绪。
+  IF fbJogX.xReady THEN
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) OR WORD#16#0001);
+ELSE
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[95] 反馈 FB_ServoJog.xMoving，TRUE 表示当前轴正在点动。
+  IF fbJogX.xMoving THEN
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) OR WORD#16#0001);
+ELSE
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[96] 反馈 FB_ServoJog.xFault，TRUE 表示点动功能块检测到故障。
+  IF fbJogX.xFault THEN
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) OR WORD#16#0001);
+ELSE
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[97] 反馈 FB_ServoJog.xJogError，TRUE 表示 MC_Jog 功能块报错。
+  IF fbJogX.xJogError THEN
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) OR WORD#16#0001);
+ELSE
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[98] 反馈 FB_ServoJog.xJogAborted，TRUE 表示点动命令被中止。
+  IF fbJogX.xJogAborted THEN
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) OR WORD#16#0001);
+ELSE
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) AND WORD#16#FFFE);
+END_IF;
+
+  // arReg_data[99] 是点动/复位诊断版本号，Python 用它判断 [89..99] 是否已生效。
+  arReg_data[99] := 26084;
+</xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+      <pou name="JogY" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbJogX">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogY">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogZ">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogB">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogC">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="xServoEnable">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+          <variable name="xResetCmdReg"><type><BOOL /></type></variable></localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+
+ 
+
+
+
+
+  // ================================
+  // 5轴点动控制
+  // ================================
+
+
+
+  // arReg_data[89] 是五轴复位命令位图，bit0..bit4=X/Y/Z/B/C。
+  // Python 复位时写一个短脉冲；FB_ServoJog 内部用 R_TRIG 转成 MC_Reset 上升沿。
+  xResetCmdReg := (arReg_data[89] AND WORD#16#0002) &lt;&gt; WORD#0;
+
+  // 在 EtherCAT_Task 内直接解析点动总开关和方向命令。
+  // 这样 Jog 程序调用 FB_ServoJog 前，拿到的是本任务内最新的寄存器状态。
+  xJogMode[2] := (arReg_data[19] AND WORD#16#0002) &lt;&gt; WORD#0;
+  xJogFwd[2] := xJogMode[2] AND (arReg_data[8] &lt;&gt; WORD#0);
+  xJogRev[2] := xJogMode[2] AND (arReg_data[9] &lt;&gt; WORD#0);
+
+  // 点动侧使能跟随 arReg_data[32] 解析后的 GVL.Axes[2].AxisEnable。
+  // 五轴总关闭时，点动功能块不会继续用本地 TRUE 保持上使能。
+  xServoEnable := GVL.Axes[2].AxisEnable;
+
+  fbJogY(
+      Axis := AXIS_Y,
+      xServoOn := xServoEnable,
+      xReset := xResetCmdReg,
+      xJogFwd := xJogFwd[2],
+      xJogRev := xJogRev[2],
+      xLimitFwd := FALSE,
+      xLimitRev := FALSE,
+      lrJogVel := 100.0,
+      lrAcc := 100.0,
+      lrDec := 200.0,
+      lrJerk := 0.0
+  );
+
+
+  // arReg_data[90] 反馈复位命令当前是否被 PLC 读到，bit0..bit4=X/Y/Z/B/C。
+  IF xResetCmdReg THEN
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) OR WORD#16#0002);
+ELSE
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[91] 反馈点动总开关 xJogMode，bit0..bit4=X/Y/Z/B/C。
+  IF xJogMode[2] THEN
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) OR WORD#16#0002);
+ELSE
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[92] 反馈进入 FB_ServoJog 前的正向点动命令。
+  IF xJogFwd[2] THEN
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) OR WORD#16#0002);
+ELSE
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[93] 反馈进入 FB_ServoJog 前的反向点动命令。
+  IF xJogRev[2] THEN
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) OR WORD#16#0002);
+ELSE
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[94] 反馈 FB_ServoJog.xReady，TRUE 表示点动功能块内部 MC_Power 已就绪。
+  IF fbJogY.xReady THEN
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) OR WORD#16#0002);
+ELSE
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[95] 反馈 FB_ServoJog.xMoving，TRUE 表示当前轴正在点动。
+  IF fbJogY.xMoving THEN
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) OR WORD#16#0002);
+ELSE
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[96] 反馈 FB_ServoJog.xFault，TRUE 表示点动功能块检测到故障。
+  IF fbJogY.xFault THEN
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) OR WORD#16#0002);
+ELSE
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[97] 反馈 FB_ServoJog.xJogError，TRUE 表示 MC_Jog 功能块报错。
+  IF fbJogY.xJogError THEN
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) OR WORD#16#0002);
+ELSE
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[98] 反馈 FB_ServoJog.xJogAborted，TRUE 表示点动命令被中止。
+  IF fbJogY.xJogAborted THEN
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) OR WORD#16#0002);
+ELSE
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) AND WORD#16#FFFD);
+END_IF;
+
+  // arReg_data[99] 是点动/复位诊断版本号，Python 用它判断 [89..99] 是否已生效。
+  arReg_data[99] := 26084;
+
+ </xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+      <pou name="JogZ" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbJogX">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogY">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogZ">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogB">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogC">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="xServoEnable">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+          <variable name="xResetCmdReg"><type><BOOL /></type></variable></localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+
+ 
+
+
+
+
+  // ================================
+  // 5轴点动控制
+  // ================================
+
+  
+
+
+  // arReg_data[89] 是五轴复位命令位图，bit0..bit4=X/Y/Z/B/C。
+  // Python 复位时写一个短脉冲；FB_ServoJog 内部用 R_TRIG 转成 MC_Reset 上升沿。
+  xResetCmdReg := (arReg_data[89] AND WORD#16#0004) &lt;&gt; WORD#0;
+
+  // 在 EtherCAT_Task 内直接解析点动总开关和方向命令。
+  // 这样 Jog 程序调用 FB_ServoJog 前，拿到的是本任务内最新的寄存器状态。
+  xJogMode[3] := (arReg_data[19] AND WORD#16#0004) &lt;&gt; WORD#0;
+  xJogFwd[3] := xJogMode[3] AND (arReg_data[10] &lt;&gt; WORD#0);
+  xJogRev[3] := xJogMode[3] AND (arReg_data[11] &lt;&gt; WORD#0);
+
+  // 点动侧使能跟随 arReg_data[32] 解析后的 GVL.Axes[3].AxisEnable。
+  // 五轴总关闭时，点动功能块不会继续用本地 TRUE 保持上使能。
+  xServoEnable := GVL.Axes[3].AxisEnable;
+
+  fbJogZ(
+      Axis := AXIS_Z,
+      xServoOn := xServoEnable,
+      xReset := xResetCmdReg,
+      xJogFwd := xJogFwd[3],
+      xJogRev := xJogRev[3],
+      xLimitFwd := FALSE,
+      xLimitRev := FALSE,
+      lrJogVel := 100.0,
+      lrAcc := 100.0,
+      lrDec := 200.0,
+      lrJerk := 0.0
+  );
+
+
+  // arReg_data[90] 反馈复位命令当前是否被 PLC 读到，bit0..bit4=X/Y/Z/B/C。
+  IF xResetCmdReg THEN
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) OR WORD#16#0004);
+ELSE
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[91] 反馈点动总开关 xJogMode，bit0..bit4=X/Y/Z/B/C。
+  IF xJogMode[3] THEN
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) OR WORD#16#0004);
+ELSE
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[92] 反馈进入 FB_ServoJog 前的正向点动命令。
+  IF xJogFwd[3] THEN
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) OR WORD#16#0004);
+ELSE
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[93] 反馈进入 FB_ServoJog 前的反向点动命令。
+  IF xJogRev[3] THEN
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) OR WORD#16#0004);
+ELSE
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[94] 反馈 FB_ServoJog.xReady，TRUE 表示点动功能块内部 MC_Power 已就绪。
+  IF fbJogZ.xReady THEN
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) OR WORD#16#0004);
+ELSE
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[95] 反馈 FB_ServoJog.xMoving，TRUE 表示当前轴正在点动。
+  IF fbJogZ.xMoving THEN
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) OR WORD#16#0004);
+ELSE
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[96] 反馈 FB_ServoJog.xFault，TRUE 表示点动功能块检测到故障。
+  IF fbJogZ.xFault THEN
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) OR WORD#16#0004);
+ELSE
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[97] 反馈 FB_ServoJog.xJogError，TRUE 表示 MC_Jog 功能块报错。
+  IF fbJogZ.xJogError THEN
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) OR WORD#16#0004);
+ELSE
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[98] 反馈 FB_ServoJog.xJogAborted，TRUE 表示点动命令被中止。
+  IF fbJogZ.xJogAborted THEN
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) OR WORD#16#0004);
+ELSE
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) AND WORD#16#FFFB);
+END_IF;
+
+  // arReg_data[99] 是点动/复位诊断版本号，Python 用它判断 [89..99] 是否已生效。
+  arReg_data[99] := 26084;
+
+ </xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+      <pou name="JogB" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbJogX">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogY">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogZ">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogB">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogC">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="xServoEnable">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+          <variable name="xResetCmdReg"><type><BOOL /></type></variable></localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+
+ 
+
+
+
+
+  // ================================
+  // 5轴点动控制
+  // ================================
+
+  
+
+  // arReg_data[89] 是五轴复位命令位图，bit0..bit4=X/Y/Z/B/C。
+  // Python 复位时写一个短脉冲；FB_ServoJog 内部用 R_TRIG 转成 MC_Reset 上升沿。
+  xResetCmdReg := (arReg_data[89] AND WORD#16#0008) &lt;&gt; WORD#0;
+
+  // 在 EtherCAT_Task 内直接解析点动总开关和方向命令。
+  // 这样 Jog 程序调用 FB_ServoJog 前，拿到的是本任务内最新的寄存器状态。
+  xJogMode[4] := (arReg_data[19] AND WORD#16#0008) &lt;&gt; WORD#0;
+  xJogFwd[4] := xJogMode[4] AND (arReg_data[12] &lt;&gt; WORD#0);
+  xJogRev[4] := xJogMode[4] AND (arReg_data[13] &lt;&gt; WORD#0);
+
+  // 点动侧使能跟随 arReg_data[32] 解析后的 GVL.Axes[4].AxisEnable。
+  // 五轴总关闭时，点动功能块不会继续用本地 TRUE 保持上使能。
+  xServoEnable := GVL.Axes[4].AxisEnable;
+
+  fbJogB(
+      Axis := AXIS_B,
+      xServoOn := xServoEnable,
+      xReset := xResetCmdReg,
+      xJogFwd := xJogFwd[4],
+      xJogRev := xJogRev[4],
+      xLimitFwd := FALSE,
+      xLimitRev := FALSE,
+      lrJogVel := 100.0,
+      lrAcc := 100.0,
+      lrDec := 200.0,
+      lrJerk := 0.0
+  );
+
+
+  // arReg_data[90] 反馈复位命令当前是否被 PLC 读到，bit0..bit4=X/Y/Z/B/C。
+  IF xResetCmdReg THEN
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) OR WORD#16#0008);
+ELSE
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[91] 反馈点动总开关 xJogMode，bit0..bit4=X/Y/Z/B/C。
+  IF xJogMode[4] THEN
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) OR WORD#16#0008);
+ELSE
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[92] 反馈进入 FB_ServoJog 前的正向点动命令。
+  IF xJogFwd[4] THEN
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) OR WORD#16#0008);
+ELSE
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[93] 反馈进入 FB_ServoJog 前的反向点动命令。
+  IF xJogRev[4] THEN
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) OR WORD#16#0008);
+ELSE
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[94] 反馈 FB_ServoJog.xReady，TRUE 表示点动功能块内部 MC_Power 已就绪。
+  IF fbJogB.xReady THEN
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) OR WORD#16#0008);
+ELSE
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[95] 反馈 FB_ServoJog.xMoving，TRUE 表示当前轴正在点动。
+  IF fbJogB.xMoving THEN
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) OR WORD#16#0008);
+ELSE
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[96] 反馈 FB_ServoJog.xFault，TRUE 表示点动功能块检测到故障。
+  IF fbJogB.xFault THEN
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) OR WORD#16#0008);
+ELSE
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[97] 反馈 FB_ServoJog.xJogError，TRUE 表示 MC_Jog 功能块报错。
+  IF fbJogB.xJogError THEN
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) OR WORD#16#0008);
+ELSE
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[98] 反馈 FB_ServoJog.xJogAborted，TRUE 表示点动命令被中止。
+  IF fbJogB.xJogAborted THEN
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) OR WORD#16#0008);
+ELSE
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) AND WORD#16#FFF7);
+END_IF;
+
+  // arReg_data[99] 是点动/复位诊断版本号，Python 用它判断 [89..99] 是否已生效。
+  arReg_data[99] := 26084;
+
+ </xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+      <pou name="JogC" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="fbJogX">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogY">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogZ">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogB">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="fbJogC">
+              <type>
+                <derived name="FB_ServoJog" />
+              </type>
+            </variable>
+            <variable name="xServoEnable">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+          <variable name="xResetCmdReg"><type><BOOL /></type></variable></localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+
+ 
+
+
+
+
+  // ================================
+  // 5轴点动控制
+  // ================================
+
+
+  // arReg_data[89] 是五轴复位命令位图，bit0..bit4=X/Y/Z/B/C。
+  // Python 复位时写一个短脉冲；FB_ServoJog 内部用 R_TRIG 转成 MC_Reset 上升沿。
+  xResetCmdReg := (arReg_data[89] AND WORD#16#0010) &lt;&gt; WORD#0;
+
+  // 在 EtherCAT_Task 内直接解析点动总开关和方向命令。
+  // 这样 Jog 程序调用 FB_ServoJog 前，拿到的是本任务内最新的寄存器状态。
+  xJogMode[5] := (arReg_data[19] AND WORD#16#0010) &lt;&gt; WORD#0;
+  xJogFwd[5] := xJogMode[5] AND (arReg_data[14] &lt;&gt; WORD#0);
+  xJogRev[5] := xJogMode[5] AND (arReg_data[15] &lt;&gt; WORD#0);
+
+  // 点动侧使能跟随 arReg_data[32] 解析后的 GVL.Axes[5].AxisEnable。
+  // 五轴总关闭时，点动功能块不会继续用本地 TRUE 保持上使能。
+  xServoEnable := GVL.Axes[5].AxisEnable;
+
+  fbJogC(
+      Axis := AXIS_C,
+      xServoOn := xServoEnable,
+      xReset := xResetCmdReg,
+      xJogFwd := xJogFwd[5],
+      xJogRev := xJogRev[5],
+      xLimitFwd := FALSE,
+      xLimitRev := FALSE,
+      lrJogVel := 100.0,
+      lrAcc := 100.0,
+      lrDec := 200.0,
+      lrJerk := 0.0
+  );
+
+
+  // arReg_data[90] 反馈复位命令当前是否被 PLC 读到，bit0..bit4=X/Y/Z/B/C。
+  IF xResetCmdReg THEN
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) OR WORD#16#0010);
+ELSE
+    arReg_data[90] := WORD_TO_INT(INT_TO_WORD(arReg_data[90]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[91] 反馈点动总开关 xJogMode，bit0..bit4=X/Y/Z/B/C。
+  IF xJogMode[5] THEN
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) OR WORD#16#0010);
+ELSE
+    arReg_data[91] := WORD_TO_INT(INT_TO_WORD(arReg_data[91]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[92] 反馈进入 FB_ServoJog 前的正向点动命令。
+  IF xJogFwd[5] THEN
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) OR WORD#16#0010);
+ELSE
+    arReg_data[92] := WORD_TO_INT(INT_TO_WORD(arReg_data[92]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[93] 反馈进入 FB_ServoJog 前的反向点动命令。
+  IF xJogRev[5] THEN
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) OR WORD#16#0010);
+ELSE
+    arReg_data[93] := WORD_TO_INT(INT_TO_WORD(arReg_data[93]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[94] 反馈 FB_ServoJog.xReady，TRUE 表示点动功能块内部 MC_Power 已就绪。
+  IF fbJogC.xReady THEN
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) OR WORD#16#0010);
+ELSE
+    arReg_data[94] := WORD_TO_INT(INT_TO_WORD(arReg_data[94]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[95] 反馈 FB_ServoJog.xMoving，TRUE 表示当前轴正在点动。
+  IF fbJogC.xMoving THEN
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) OR WORD#16#0010);
+ELSE
+    arReg_data[95] := WORD_TO_INT(INT_TO_WORD(arReg_data[95]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[96] 反馈 FB_ServoJog.xFault，TRUE 表示点动功能块检测到故障。
+  IF fbJogC.xFault THEN
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) OR WORD#16#0010);
+ELSE
+    arReg_data[96] := WORD_TO_INT(INT_TO_WORD(arReg_data[96]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[97] 反馈 FB_ServoJog.xJogError，TRUE 表示 MC_Jog 功能块报错。
+  IF fbJogC.xJogError THEN
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) OR WORD#16#0010);
+ELSE
+    arReg_data[97] := WORD_TO_INT(INT_TO_WORD(arReg_data[97]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[98] 反馈 FB_ServoJog.xJogAborted，TRUE 表示点动命令被中止。
+  IF fbJogC.xJogAborted THEN
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) OR WORD#16#0010);
+ELSE
+    arReg_data[98] := WORD_TO_INT(INT_TO_WORD(arReg_data[98]) AND WORD#16#FFEF);
+END_IF;
+
+  // arReg_data[99] 是点动/复位诊断版本号，Python 用它判断 [89..99] 是否已生效。
+  arReg_data[99] := 26084;</xhtml>
+          </ST>
+        </body>
+        <addData />
+      </pou>
+    </pous></types><instances><configurations /></instances></project>

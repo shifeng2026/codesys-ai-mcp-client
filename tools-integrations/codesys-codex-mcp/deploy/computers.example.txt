@@ -1,0 +1,4 @@
+# One Windows computer name or IP per line.
+# PowerShell Remoting must be enabled on targets.
+PLC-ENG-01
+PLC-ENG-02

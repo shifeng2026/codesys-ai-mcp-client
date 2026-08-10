@@ -1,0 +1,42 @@
+# Runtime state and local credentials
+.git/
+_git-upload/
+_github_known_hosts
+.codex-runtime/
+.codex-runtime-watchdog-test/
+**/.sandbox-secrets/
+auth.json
+**/auth.json
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+
+# Local Codex history and logs
+codex-history.json
+launcher.log
+*.log
+logs/
+logs-snapshot/
+
+# Generated packages and build/runtime output
+portable-packages/
+node_modules/
+dist/
+build/
+out/
+
+# Language caches
+__pycache__/
+*.pyc
+*.pyo
+*.sqlite
+*.sqlite-*
+
+# OS/editor noise
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

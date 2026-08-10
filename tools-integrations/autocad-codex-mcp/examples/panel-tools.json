@@ -1,0 +1,42 @@
+[
+  {
+    "tool": "autocad_new_drawing",
+    "arguments": {
+      "startIfMissing": true
+    }
+  },
+  {
+    "tool": "autocad_set_layer",
+    "arguments": {
+      "name": "PANEL",
+      "color": 3,
+      "makeActive": true
+    }
+  },
+  {
+    "tool": "autocad_draw_rectangle",
+    "arguments": {
+      "origin": [0, 0],
+      "width": 600,
+      "height": 300,
+      "layer": "PANEL"
+    }
+  },
+  {
+    "tool": "autocad_draw_circle",
+    "arguments": {
+      "center": [80, 80],
+      "radius": 6,
+      "layer": "PANEL"
+    }
+  },
+  {
+    "tool": "autocad_add_text",
+    "arguments": {
+      "text": "PANEL-001",
+      "point": [20, 260],
+      "height": 12,
+      "layer": "PANEL"
+    }
+  }
+]
