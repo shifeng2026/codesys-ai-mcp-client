@@ -6,7 +6,6 @@ const elements = {
   reasoningPanel: document.querySelector(".reasoning-panel"),
   resultPanel: document.querySelector(".result-panel"),
   columnResizers: document.querySelectorAll("[data-column-resizer]"),
-  layoutModeControl: document.querySelector("#layoutModeControl"),
   codexStatus: document.querySelector("#codexStatus"),
   workspaceInput: document.querySelector("#workspaceInput"),
   refreshDirsButton: document.querySelector("#refreshDirsButton"),
@@ -19,19 +18,12 @@ const elements = {
   modelInput: document.querySelector("#modelInput"),
   refreshModelsButton: document.querySelector("#refreshModelsButton"),
   modelStatus: document.querySelector("#modelStatus"),
-  webSearchToggle: document.querySelector("#webSearchToggle"),
-  ephemeralToggle: document.querySelector("#ephemeralToggle"),
-  autoReuseToggle: document.querySelector("#autoReuseToggle"),
-  maintenanceContextToggle: document.querySelector("#maintenanceContextToggle"),
+  autoApprovalToggle: document.querySelector("#autoApprovalToggle"),
+  autoApprovalDelay: document.querySelector("#autoApprovalDelay"),
   codesysMcpToggle: document.querySelector("#codesysMcpToggle"),
   autocadMcpToggle: document.querySelector("#autocadMcpToggle"),
-  documentPath: document.querySelector("#documentPath"),
-  documentReadButton: document.querySelector("#documentReadButton"),
-  documentToPromptButton: document.querySelector("#documentToPromptButton"),
-  documentStatus: document.querySelector("#documentStatus"),
-  documentOutput: document.querySelector("#documentOutput"),
   codesysPanelStatus: document.querySelector("#codesysPanelStatus"),
-  codesysProjectPath: document.querySelector("#codesysProjectPath"),
+  codesysProjectDirectory: document.querySelector("#codesysProjectDirectory"),
   codesysExportPath: document.querySelector("#codesysExportPath"),
   codesysSaveAsPath: document.querySelector("#codesysSaveAsPath"),
   codesysProjectSelect: document.querySelector("#codesysProjectSelect"),
@@ -110,6 +102,12 @@ const elements = {
   thinkingState: document.querySelector("#thinkingState"),
   thinkingTitle: document.querySelector("#thinkingTitle"),
   thinkingDetail: document.querySelector("#thinkingDetail"),
+  approvalPrompt: document.querySelector("#approvalPrompt"),
+  approvalTitle: document.querySelector("#approvalTitle"),
+  approvalDetail: document.querySelector("#approvalDetail"),
+  approvalCountdown: document.querySelector("#approvalCountdown"),
+  approveRecoveryButton: document.querySelector("#approveRecoveryButton"),
+  approvalStopButton: document.querySelector("#approvalStopButton"),
   reasoningLog: document.querySelector("#reasoningLog"),
   resultLog: document.querySelector("#resultLog"),
   inputHeightSections: document.querySelectorAll("[data-input-height]")
@@ -117,8 +115,8 @@ const elements = {
 
 const RUN_MODES = {
   read: { label: "只读分析", sandbox: "read-only", approval: "never" },
-  write: { label: "工作区写入", sandbox: "workspace-write", approval: "never" },
-  confirm: { label: "安全写入", sandbox: "workspace-write", approval: "never" }
+  write: { label: "完全执行", sandbox: "danger-full-access", approval: "never" },
+  confirm: { label: "工作区写入", sandbox: "workspace-write", approval: "never" }
 };
 
 const REASONING_LABELS = {
@@ -126,8 +124,26 @@ const REASONING_LABELS = {
   low: "低",
   medium: "中",
   high: "高",
-  xhigh: "极高"
+  xhigh: "极高",
+  max: "最大",
+  ultra: "超强"
 };
+
+const MODEL_MODE_LABELS = {
+  auto: "自动匹配",
+  configured: "本机配置",
+  explicit: "明确选择",
+  custom: "自定义"
+};
+
+const DEFAULT_AUTO_MODEL_MAP = Object.freeze({
+  low: "gpt-5.6-luna",
+  medium: "gpt-5.6-terra",
+  high: "gpt-5.6-sol",
+  xhigh: "gpt-5.6-sol",
+  max: "gpt-5.6-sol",
+  ultra: "gpt-5.6-sol"
+});
 
 const STATUS_LABELS = {
   completed: "完成",
@@ -182,8 +198,14 @@ function inferAgentProfileForPrompt(profile, prompt) {
   return "auto";
 }
 
-const PYTHON_EDIT_HISTORY_LIMIT = 80;
+const PYTHON_EDIT_HISTORY_LIMIT = 30;
+const PYTHON_EDIT_HISTORY_CHAR_LIMIT = 2000000;
 const WORKSPACE_CONTEXT_TEXT_LIMIT = 72000;
+const LIVE_EVENT_LIMIT = 120;
+const LIVE_EVENT_TEXT_LIMIT = 180000;
+const LIVE_SINGLE_TEXT_LIMIT = 120000;
+const LIVE_LOG_ENTRY_LIMIT = 120;
+const LIVE_RAW_TEXT_LIMIT = 4096;
 const ENGINEERING_PROMPT_PATTERN = /(联动|检查|修改|同步|提交|推送|CODESYS|codesys|PLC|plc|Python|python|寄存器|Modbus|485|XML|project|工程|仓库|Git|git|编译|运行)/i;
 
 const state = {
@@ -197,16 +219,19 @@ const state = {
   tickTimer: null,
   runReconcileTimer: null,
   runReconcileBusy: false,
+  runReconcileRequest: null,
   resultTexts: [],
   resultEvents: [],
   reasoningTexts: [],
   reasoningEvents: [],
   runErrorTexts: [],
   codexConfig: null,
+  autoModelMap: { ...DEFAULT_AUTO_MODEL_MAP },
   history: [],
-  historyMatches: [],
   mcpStatus: null,
   codesysBusy: false,
+  codesysProjectDirectorySubmitted: "",
+  codesysProjectScanRequestId: 0,
   gitBusy: false,
   plcLinkBusy: false,
   pythonRunning: false,
@@ -215,7 +240,6 @@ const state = {
   pythonEditLastText: "",
   pythonEditRecordTimer: null,
   pythonEditApplyingHistory: false,
-  historyLookupTimer: null,
   historyFavoriteOnly: false,
   historyFavoriteCount: 0,
   historyTotalCount: 0,
@@ -226,23 +250,20 @@ const state = {
   saveHistoryPromise: null,
   historySaved: false,
   historySaving: false,
-  documentText: "",
-  documentInfo: null,
-  documentBusy: false,
-  layoutMode: "modern",
+  approvalAlertTimer: null,
+  approvalOriginalTitle: "",
   lastPromptKey: "codex-local-client:last-prompt",
   lastWorkspaceKey: "codex-local-client:last-workspace",
   lastModeKey: "codex-local-client:last-mode",
   lastAgentKey: "codex-local-client:last-agent",
   lastReasoningKey: "codex-local-client:last-reasoning",
-  layoutModeKey: "codex-local-client:layout-mode",
-  documentPathKey: "codex-local-client:document-path",
-  lastReuseKey: "codex-local-client:auto-reuse",
-  maintenanceContextKey: "codex-local-client:maintenance-context",
+  autoApprovalKey: "codex-local-client:auto-approval",
+  autoApprovalDelayKey: "codex-local-client:auto-approval-delay",
   historyFavoriteOnlyKey: "codex-local-client:history-favorite-only",
   lastMcpKey: "codex-local-client:mcp-tools",
   lastModelKey: "codex-local-client:last-model",
   customModelKey: "codex-local-client:custom-model",
+  codesysProjectDirectoryKey: "codex-local-client:codesys-project-directory",
   codesysProjectKey: "codex-local-client:codesys-project",
   codesysExportKey: "codex-local-client:codesys-export",
   codesysSaveAsKey: "codex-local-client:codesys-save-as",
@@ -281,6 +302,17 @@ function formatReasoningLabel(actual, requested = actual) {
     return `${requestedLabel}->${actualLabel}`;
   }
   return actualLabel;
+}
+
+function formatModelLabel(model, modelMode = "", modelSource = "") {
+  const value = String(model || "").trim();
+  const mode = String(modelMode || "").trim();
+  const source = String(modelSource || "").trim();
+  const modeLabel = MODEL_MODE_LABELS[mode] || source || "";
+  if (value) {
+    return modeLabel ? `${value} (${modeLabel})` : value;
+  }
+  return mode === "configured" ? "本机默认配置" : modeLabel || "未返回实际模型";
 }
 
 function resolveAutomaticReasoningEffort(requested, prompt, workspaceContext, options = {}) {
@@ -327,7 +359,13 @@ function resolveAutomaticReasoningEffort(requested, prompt, workspaceContext, op
   if (score <= 4) {
     return "high";
   }
-  return "xhigh";
+  if (score <= 6) {
+    return "xhigh";
+  }
+  if (score <= 8) {
+    return "max";
+  }
+  return "ultra";
 }
 
 function formatFileSize(bytes) {
@@ -417,6 +455,121 @@ function setThinking(title, detail, active = false, tone = "") {
   elements.thinkingState.classList.toggle("warning", tone === "warning");
 }
 
+function sandboxLabel(value) {
+  if (value === "danger-full-access") {
+    return "完全执行";
+  }
+  if (value === "read-only") {
+    return "只读";
+  }
+  return "工作区写入";
+}
+
+function compactVisibleThought(value, maxChars = 520) {
+  const text = String(value || "")
+    .replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/\r/g, "")
+    .trim();
+  if (!text) {
+    return "";
+  }
+  if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
+    return "";
+  }
+  const lines = text.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(0, 8);
+  const visible = lines.join("\n");
+  return visible.length > maxChars ? `${visible.slice(0, maxChars - 1)}…` : visible;
+}
+
+function rememberCurrentThought(title, detail) {
+  if (!state.currentRun) {
+    return;
+  }
+  const visibleTitle = String(title || "正在思考运行").trim();
+  const visibleDetail = compactVisibleThought(detail);
+  state.currentRun.currentThoughtTitle = visibleTitle || "正在思考运行";
+  state.currentRun.currentThoughtDetail = visibleDetail || visibleTitle || "Codex 正在处理";
+  state.currentRun.currentThoughtAt = Date.now();
+}
+
+function showLiveThought(fallbackTitle, fallbackDetail, footer = "") {
+  const currentRun = state.currentRun || {};
+  const title = currentRun.currentThoughtTitle || fallbackTitle;
+  const detail = currentRun.currentThoughtDetail || fallbackDetail;
+  setThinking(title, [detail, footer].filter(Boolean).join("\n"), true);
+}
+
+function stopApprovalAlert() {
+  if (state.approvalAlertTimer) {
+    window.clearInterval(state.approvalAlertTimer);
+    state.approvalAlertTimer = null;
+  }
+  if (state.approvalOriginalTitle) {
+    document.title = state.approvalOriginalTitle;
+    state.approvalOriginalTitle = "";
+  }
+}
+
+function updateApprovalCountdown() {
+  if (!elements.approvalPrompt || elements.approvalPrompt.hidden) {
+    return;
+  }
+  const currentRun = state.currentRun || {};
+  const deadlineAt = Number(currentRun.approvalDeadlineAt || 0);
+  if (!currentRun.approvalAutoEnabled || !deadlineAt) {
+    elements.approvalCountdown.textContent = "自动处理已关闭，请选择允许并恢复或停止。";
+    return;
+  }
+  const remainingMs = Math.max(0, deadlineAt - Date.now());
+  const seconds = Math.ceil(remainingMs / 1000);
+  elements.approvalCountdown.textContent = remainingMs > 0
+    ? `${seconds} 秒后自动允许并恢复一次`
+    : "正在自动允许并恢复";
+}
+
+function startApprovalAlert(title, detail) {
+  stopApprovalAlert();
+  state.approvalOriginalTitle = document.title;
+  let highlighted = false;
+  state.approvalAlertTimer = window.setInterval(() => {
+    highlighted = !highlighted;
+    document.title = highlighted ? `【需要处理】${state.approvalOriginalTitle}` : state.approvalOriginalTitle;
+    updateApprovalCountdown();
+  }, 700);
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification(title, { body: compactVisibleThought(detail, 180) || "Codex 任务正在等待处理" });
+    } catch {
+      // Browser notification support varies by the local wrapper.
+    }
+  }
+}
+
+function showApprovalPrompt(data) {
+  if (!elements.approvalPrompt) {
+    return;
+  }
+  const currentRun = state.currentRun || {};
+  currentRun.approvalDeadlineAt = Number(data.deadlineAt || 0);
+  currentRun.approvalAutoEnabled = data.autoApprovalEnabled === true;
+  elements.approvalPrompt.hidden = false;
+  elements.approvalTitle.textContent = data.kind === "input" ? "任务等待人工输入" : "任务等待授权";
+  elements.approvalDetail.textContent = data.detail || data.message || "Codex 暂停等待处理";
+  elements.approveRecoveryButton.disabled = data.recoveryAvailable === false;
+  updateApprovalCountdown();
+  startApprovalAlert(elements.approvalTitle.textContent, elements.approvalDetail.textContent);
+}
+
+function hideApprovalPrompt() {
+  stopApprovalAlert();
+  if (elements.approvalPrompt) {
+    elements.approvalPrompt.hidden = true;
+  }
+  if (state.currentRun) {
+    state.currentRun.approvalDeadlineAt = 0;
+  }
+}
+
 function setCodesysStatus(text) {
   if (elements.codesysPanelStatus) {
     elements.codesysPanelStatus.textContent = text;
@@ -425,6 +578,7 @@ function setCodesysStatus(text) {
 
 function updateCodesysControls() {
   const disabled = state.running || state.codesysBusy;
+  const projectRequiredDisabled = disabled || !selectedCodesysProjectPath();
   [
     elements.codesysReadExportButton,
     elements.codesysAnalyzeExportButton,
@@ -432,7 +586,13 @@ function updateCodesysControls() {
     elements.codesysExportButton,
     elements.codesysSaveExportButton,
     elements.codesysImportButton,
-    elements.codesysBuildButton,
+    elements.codesysBuildButton
+  ].forEach((control) => {
+    if (control) {
+      control.disabled = projectRequiredDisabled;
+    }
+  });
+  [
     elements.codesysBuildMode,
     elements.codesysProjectSelect,
     elements.codesysRefreshProjectsButton
@@ -514,7 +674,7 @@ function startTicker() {
       ? currentRun.serverIdleMs + Math.max(0, Date.now() - Number(currentRun.lastHeartbeatAt || Date.now()))
       : Math.max(0, Date.now() - Number(currentRun.lastProgressAt || state.startedAt || Date.now()));
     if (currentRun.stallWarning) {
-      const timeoutMs = Number(currentRun.stallTimeoutMs || 0);
+      const timeoutMs = Number(currentRun.effectiveTimeoutMs || currentRun.stallTimeoutMs || 0);
       const remainingText = timeoutMs > idleMs
         ? `，${durationText(timeoutMs - idleMs)}后自动停止`
         : "，正在自动停止";
@@ -528,7 +688,25 @@ function startTicker() {
       );
       return;
     }
-    const supplementText = state.runningSupplementRestart ? "，正在带补充重启" : "";
+    if (currentRun.selfChecking) {
+      const timeoutMs = Number(currentRun.effectiveTimeoutMs || currentRun.stallTimeoutMs || 0);
+      const remainingText = timeoutMs > idleMs
+        ? `，${durationText(timeoutMs - idleMs)}后进入自动恢复`
+        : "，正在执行自动恢复";
+      setStatus("正在自检");
+      setThinking(
+        "长时间无响应，正在自检",
+        `已 ${durationText(idleMs)} 没有新事件；${currentRun.waitLabel || "正在判断等待阶段"}${remainingText}`,
+        true,
+        "warning"
+      );
+      return;
+    }
+    const supplementText = isQueuedContinuationRequest()
+      ? "，已排队下一轮追问"
+      : state.runningSupplementRestart
+        ? "，正在带补充重启"
+        : "";
     const progressText = currentRun.lastProgressLabel
       ? `，最近进展: ${currentRun.lastProgressLabel}`
       : "";
@@ -552,7 +730,11 @@ function startTicker() {
       );
       return;
     }
-    setThinking("正在思考运行", `已运行 ${elapsedText()}${progressText}${supplementText}`, true);
+    showLiveThought(
+      "正在思考运行",
+      "Codex 正在分析任务",
+      `已运行 ${elapsedText()}${progressText}${supplementText}`
+    );
   }, 1000);
 }
 
@@ -575,6 +757,7 @@ function stopRunReconcileTimer() {
     window.clearInterval(state.runReconcileTimer);
     state.runReconcileTimer = null;
   }
+  state.runReconcileRequest = null;
   state.runReconcileBusy = false;
 }
 
@@ -602,10 +785,8 @@ function setRunning(running) {
   elements.modelSelect.disabled = running;
   elements.refreshModelsButton.disabled = running;
   elements.modelInput.disabled = running || elements.modelSelect.value !== "__custom__";
-  elements.maintenanceContextToggle.disabled = running;
   elements.codesysMcpToggle.disabled = running || elements.codesysMcpToggle.dataset.available === "0";
   elements.autocadMcpToggle.disabled = running || elements.autocadMcpToggle.dataset.available === "0";
-  updateDocumentControls();
   updateCodesysControls();
   updateGitControls();
   updatePlcLinkControls();
@@ -619,6 +800,7 @@ function noteRunProgress(label, detail = "") {
   state.currentRun.lastHeartbeatAt = Date.now();
   state.currentRun.serverIdleMs = 0;
   state.currentRun.stallWarning = false;
+  state.currentRun.selfChecking = false;
   state.currentRun.lastProgressLabel = String(label || "收到新事件");
   if (detail) {
     state.currentRun.lastEventDetail = String(detail);
@@ -630,15 +812,26 @@ async function reconcileCurrentRunStatus() {
     return;
   }
 
-  const runId = String(state.currentRun.runId || "");
+  const currentRun = state.currentRun;
+  const runId = String(currentRun.runId || "");
   if (!runId) {
     return;
   }
 
+  const requestToken = {};
+  state.runReconcileRequest = requestToken;
   state.runReconcileBusy = true;
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
     const status = await response.json().catch(() => ({}));
+    if (
+      state.runReconcileRequest !== requestToken ||
+      !state.running ||
+      state.currentRun !== currentRun ||
+      String(currentRun.runId || "") !== runId
+    ) {
+      return;
+    }
     if (!response.ok) {
       throw new Error(status.error || response.statusText);
     }
@@ -650,6 +843,12 @@ async function reconcileCurrentRunStatus() {
       state.currentRun.serverIdleMs = Number(activeRun.idleMs || 0);
       state.currentRun.lastHeartbeatAt = Date.now();
       state.currentRun.stallWarning = activeRun.stalled === true;
+      state.currentRun.selfChecking = activeRun.selfChecking === true;
+      state.currentRun.waitKind = activeRun.waitKind || state.currentRun.waitKind || "model";
+      state.currentRun.waitLabel = activeRun.waitLabel || state.currentRun.waitLabel || "";
+      state.currentRun.effectiveTimeoutMs = Number(activeRun.effectiveTimeoutMs || state.currentRun.effectiveTimeoutMs || 0);
+      state.currentRun.selfCheckCount = Number(activeRun.selfCheckCount || state.currentRun.selfCheckCount || 0);
+      state.currentRun.watchdogRecoveryCount = Number(activeRun.watchdogRecoveryCount || state.currentRun.watchdogRecoveryCount || 0);
       state.currentRun.lastEventDetail = activeRun.lastEventDetail || state.currentRun.lastEventDetail || "";
       state.currentRun.lastProgressLabel = activeRun.lastEventName || state.currentRun.lastProgressLabel || "";
       return;
@@ -680,6 +879,7 @@ async function reconcileCurrentRunStatus() {
       }
       state.currentRun.exitSeen = true;
       state.currentRun.clientAbortReason = "backend-finished";
+      updateContinueRunButtonState();
       setStatus(failed ? "推理失败，已收尾" : "运行完成");
       setThinking(
         failed ? "推理失败，已收尾" : "运行完成",
@@ -700,7 +900,10 @@ async function reconcileCurrentRunStatus() {
       state.controller.abort();
     }
   } finally {
-    state.runReconcileBusy = false;
+    if (state.runReconcileRequest === requestToken) {
+      state.runReconcileRequest = null;
+      state.runReconcileBusy = false;
+    }
   }
 }
 
@@ -715,7 +918,9 @@ function updateContinueRunButtonState() {
   const available = hasContinueCandidate();
   elements.continueRunButton.disabled = !available;
   if (state.running) {
-    elements.continueRunButton.title = "运行中输入补充后点击，会停止当前推理并带补充重新推理";
+    elements.continueRunButton.title = currentRunHasFinalResponse()
+      ? "当前结果会先保存，再作为上下文运行下一轮追问"
+      : "运行中输入补充后点击，会停止当前推理并带补充重新推理";
     return;
   }
   elements.continueRunButton.title = state.continueFromRecord
@@ -734,25 +939,6 @@ function setSegmentValue(container, attribute, value) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
-}
-
-function normalizeLayoutMode(mode) {
-  return mode === "classic" ? "classic" : "modern";
-}
-
-function applyLayoutMode(mode, persist = true) {
-  state.layoutMode = normalizeLayoutMode(mode);
-  document.body.classList.toggle("layout-modern", state.layoutMode === "modern");
-  document.body.classList.toggle("layout-classic", state.layoutMode === "classic");
-  setSegmentValue(elements.layoutModeControl, "layoutMode", state.layoutMode);
-  if (persist) {
-    localStorage.setItem(state.layoutModeKey, state.layoutMode);
-  }
-  window.setTimeout(restorePanelLayout, 0);
-}
-
-function initLayoutMode() {
-  applyLayoutMode(localStorage.getItem(state.layoutModeKey) || "modern", false);
 }
 
 const PANEL_MIN_WIDTHS = {
@@ -1012,15 +1198,36 @@ function initSectionCollapseButtons() {
   saveCollapsedSections();
 }
 
-function selectedModelValue() {
+function autoModelForReasoning(reasoningEffort) {
+  const effort = knownReasoningEffort(reasoningEffort || "default");
+  const configured = state.autoModelMap && (state.autoModelMap[effort] || state.autoModelMap.default);
+  if (configured && typeof configured === "object") {
+    return String(configured.id || configured.model || "").trim();
+  }
+  return String(configured || "").trim();
+}
+
+function selectedModelChoice(reasoningEffort) {
   const selected = elements.modelSelect.value;
-  if (!selected) {
-    return "";
+  if (selected === "__auto__") {
+    return {
+      model: autoModelForReasoning(reasoningEffort),
+      requestedModel: "",
+      modelMode: "auto"
+    };
+  }
+  if (selected === "__configured__" || !selected) {
+    return { model: "", requestedModel: "", modelMode: "configured" };
   }
   if (selected === "__custom__") {
-    return elements.modelInput.value.trim();
+    const model = elements.modelInput.value.trim();
+    return { model, requestedModel: model, modelMode: "custom" };
   }
-  return selected;
+  return { model: selected, requestedModel: selected, modelMode: "explicit" };
+}
+
+function selectedModelValue(reasoningEffort) {
+  return selectedModelChoice(reasoningEffort).model;
 }
 
 function setCustomModelVisibility() {
@@ -1058,8 +1265,12 @@ function appendModelOption(value, label, source) {
   const option = document.createElement("option");
   option.value = value;
   option.textContent = label;
-  option.title = value === "__custom__"
-    ? "手动输入模型 ID"
+  option.title = value === "__auto__"
+    ? "根据本次实际推理强度自动选择匹配模型"
+    : value === "__configured__"
+      ? "使用本机 Codex 配置文件里的默认模型"
+    : value === "__custom__"
+      ? "手动输入模型 ID"
     : value
       ? `使用模型: ${value}`
       : "使用本机 Codex 配置文件里的默认模型";
@@ -1073,12 +1284,19 @@ function renderModelOptions(data) {
   const configuredModel = data.configuredModel || "";
   const models = Array.isArray(data.models) ? data.models : [];
   const configuredMissing = Boolean(configuredModel && data.source === "provider" && data.configuredModelAvailable === false);
-  const previousSelection = localStorage.getItem(state.lastModelKey) || elements.modelSelect.value || "";
+  if (data.autoModelMap && typeof data.autoModelMap === "object") {
+    state.autoModelMap = { ...data.autoModelMap };
+  }
+  const storedSelection = localStorage.getItem(state.lastModelKey);
+  const previousSelection = storedSelection == null || storedSelection === ""
+    ? "__auto__"
+    : storedSelection;
   const customModel = localStorage.getItem(state.customModelKey) || elements.modelInput.value || "";
 
   elements.modelSelect.textContent = "";
+  appendModelOption("__auto__", "自动匹配推理强度", "auto");
   appendModelOption(
-    "",
+    "__configured__",
     configuredModel
       ? `默认配置 (${configuredModel}${configuredMissing ? "，provider未返回" : ""})`
       : "默认配置",
@@ -1095,9 +1313,13 @@ function renderModelOptions(data) {
   }
   appendModelOption("__custom__", "自定义模型...", "custom");
 
-  if (previousSelection === "__custom__") {
+  if (previousSelection === "__auto__") {
+    elements.modelSelect.value = "__auto__";
+  } else if (previousSelection === "__custom__") {
     elements.modelSelect.value = "__custom__";
     elements.modelInput.value = customModel;
+  } else if (previousSelection === "__configured__") {
+    elements.modelSelect.value = "__configured__";
   } else if (previousSelection && optionExists(elements.modelSelect, previousSelection)) {
     elements.modelSelect.value = previousSelection;
   } else if (previousSelection) {
@@ -1149,8 +1371,8 @@ function compactRaw(raw) {
   } catch {
     return { truncated: true, text: "[原始事件无法序列化]" };
   }
-  if (text.length > 10000) {
-    return { truncated: true, text: trimText(text, 10000) };
+  if (text.length > LIVE_RAW_TEXT_LIMIT) {
+    return { truncated: true, text: trimText(text, LIVE_RAW_TEXT_LIMIT) };
   }
   return raw;
 }
@@ -1163,6 +1385,29 @@ function compactStoredEvent(kind, title, text, raw) {
     at: new Date().toISOString(),
     raw: compactRaw(raw)
   };
+}
+
+function trimLiveBuffers(texts, events) {
+  while (texts.length > LIVE_EVENT_LIMIT) {
+    texts.shift();
+  }
+  while (events.length > LIVE_EVENT_LIMIT) {
+    events.shift();
+  }
+
+  let textChars = texts.reduce((total, item) => total + String(item || "").length, 0);
+  while (textChars > LIVE_EVENT_TEXT_LIMIT && texts.length > 1) {
+    textChars -= String(texts.shift() || "").length;
+    if (events.length > 1) {
+      events.shift();
+    }
+  }
+}
+
+function trimLogEntries(container) {
+  while (container.children.length > LIVE_LOG_ENTRY_LIMIT) {
+    container.firstElementChild.remove();
+  }
 }
 
 function appendEntry(container, kind, title, text, raw) {
@@ -1183,20 +1428,22 @@ function appendEntry(container, kind, title, text, raw) {
   item.append(top);
 
   const pre = document.createElement("pre");
-  pre.textContent = text || "";
+  pre.textContent = trimText(text || "", 30000);
   item.append(pre);
 
-  if (raw) {
+  const displayRaw = compactRaw(raw);
+  if (displayRaw) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
     const rawPre = document.createElement("pre");
     summary.textContent = "原始事件";
-    rawPre.textContent = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+    rawPre.textContent = typeof displayRaw === "string" ? displayRaw : JSON.stringify(displayRaw, null, 2);
     details.append(summary, rawPre);
     item.append(details);
   }
 
   container.append(item);
+  trimLogEntries(container);
   container.scrollTop = container.scrollHeight;
 }
 
@@ -1206,8 +1453,9 @@ function appendReasoning(kind, title, text, raw, store = true) {
     return;
   }
   const savedText = text ? `[${title}] ${text}` : `[${title}]`;
-  state.reasoningTexts.push(savedText);
+  state.reasoningTexts.push(trimText(savedText, LIVE_SINGLE_TEXT_LIMIT));
   state.reasoningEvents.push(compactStoredEvent(kind, title, text, raw));
+  trimLiveBuffers(state.reasoningTexts, state.reasoningEvents);
 }
 
 function appendResult(kind, title, text, raw, store = true) {
@@ -1219,8 +1467,9 @@ function appendResult(kind, title, text, raw, store = true) {
   if (!store) {
     return;
   }
-  state.resultTexts.push(text || "");
+  state.resultTexts.push(trimText(text || "", LIVE_SINGLE_TEXT_LIMIT));
   state.resultEvents.push(compactStoredEvent(kind, title, text, raw));
+  trimLiveBuffers(state.resultTexts, state.resultEvents);
 }
 
 function recoverResultFromReasoningEvents() {
@@ -1333,14 +1582,39 @@ function classifyRunFailure(errorText, exitData = {}) {
   };
 }
 
-function resetRunBuffers() {
+function resetRunBuffers(options = {}) {
   elements.reasoningLog.textContent = "";
-  elements.resultLog.innerHTML = '<div class="empty-result">正在等待 Codex 输出最终结果。</div>';
+  if (options.preserveResultLog !== true) {
+    elements.resultLog.innerHTML = '<div class="empty-result">正在等待 Codex 输出最终结果。</div>';
+    delete elements.resultLog.dataset.historyId;
+  }
   state.resultTexts = [];
   state.resultEvents = [];
   state.reasoningTexts = [];
   state.reasoningEvents = [];
   state.runErrorTexts = [];
+}
+
+function prepareContinuationResultLog(record) {
+  const historyId = String(record && record.id || "");
+  if (historyId && elements.resultLog.dataset.historyId === historyId) {
+    return true;
+  }
+
+  elements.resultLog.innerHTML = "";
+  appendResult(
+    "continue-history",
+    "之前的模型回答（已保留）",
+    continuationAnswerText(record) || "上一轮没有保存模型回答。",
+    null,
+    false
+  );
+  if (historyId) {
+    elements.resultLog.dataset.historyId = historyId;
+  } else {
+    delete elements.resultLog.dataset.historyId;
+  }
+  return false;
 }
 
 function findText(value, depth = 0) {
@@ -1458,9 +1732,10 @@ function isErrorEvent(data) {
 function readableCodexEvent(data) {
   const type = eventType(data);
   const itemKind = itemType(data);
-  const label = itemKind === "agent_message" ? "模型回答" : eventLabel(type);
+  const sourceType = itemKind || type;
+  const label = itemKind === "agent_message" ? "模型回答" : eventLabel(sourceType);
   const text = findText(data);
-  const title = label === type ? type : `${label} (${type})`;
+  const title = label === sourceType ? sourceType : `${label} (${sourceType})`;
   if (text) {
     return { title, text };
   }
@@ -1551,11 +1826,23 @@ async function requestJson(url, options = {}) {
   return data;
 }
 
+function selectedCodesysProjectPath() {
+  return elements.codesysProjectSelect ? elements.codesysProjectSelect.value.trim() : "";
+}
+
+function isCodesysProjectFilePath(value) {
+  return /\.project$/i.test(String(value || "").trim());
+}
+
 function persistCodesysPaths() {
-  if (!elements.codesysProjectPath) {
+  if (!elements.codesysProjectDirectory) {
     return;
   }
-  localStorage.setItem(state.codesysProjectKey, elements.codesysProjectPath.value.trim());
+  localStorage.setItem(state.codesysProjectDirectoryKey, elements.codesysProjectDirectory.value.trim());
+  const projectPath = selectedCodesysProjectPath();
+  if (projectPath) {
+    localStorage.setItem(state.codesysProjectKey, projectPath);
+  }
   localStorage.setItem(state.codesysExportKey, elements.codesysExportPath.value.trim());
   localStorage.setItem(state.codesysSaveAsKey, elements.codesysSaveAsPath.value.trim());
   if (elements.codesysGitRoot) {
@@ -1572,7 +1859,8 @@ function persistCodesysPaths() {
 function codesysBasePayload() {
   persistCodesysPaths();
   return {
-    projectPath: elements.codesysProjectPath.value.trim(),
+    projectDirectory: elements.codesysProjectDirectory.value.trim(),
+    projectPath: selectedCodesysProjectPath(),
     exportPath: elements.codesysExportPath.value.trim(),
     saveAsPath: elements.codesysSaveAsPath.value.trim(),
     gitRoot: elements.codesysGitRoot ? elements.codesysGitRoot.value.trim() : "",
@@ -1631,11 +1919,15 @@ function commonLocalAncestor(paths) {
 }
 
 function deriveWorkspace() {
+  const selectedWorkspace = elements.workspaceInput ? elements.workspaceInput.value.trim() : "";
+  if (selectedWorkspace) {
+    return selectedWorkspace;
+  }
   const engineeringRoots = [
     elements.plcPythonRoot ? elements.plcPythonRoot.value.trim() : "",
     elements.pythonGitRoot ? elements.pythonGitRoot.value.trim() : "",
     elements.codesysGitRoot ? elements.codesysGitRoot.value.trim() : "",
-    elements.codesysProjectPath ? parentPath(elements.codesysProjectPath.value) : ""
+    elements.codesysProjectDirectory ? elements.codesysProjectDirectory.value.trim() : ""
   ].filter(Boolean);
   const sharedRoot = commonLocalAncestor(engineeringRoots);
   if (sharedRoot) {
@@ -1643,9 +1935,17 @@ function deriveWorkspace() {
   }
   const candidates = [
     ...engineeringRoots,
-    elements.workspaceInput ? elements.workspaceInput.value.trim() : ""
+    selectedWorkspace
   ].filter(Boolean);
   return candidates[0] || "";
+}
+
+function persistWorkspace() {
+  const workspace = elements.workspaceInput ? elements.workspaceInput.value.trim() : "";
+  if (workspace) {
+    localStorage.setItem(state.lastWorkspaceKey, workspace);
+  }
+  return workspace;
 }
 
 function persistPythonGitSettings() {
@@ -1844,6 +2144,16 @@ function updatePythonEditHistoryControls() {
   }
 }
 
+function trimPythonEditStack(stack) {
+  while (stack.length > PYTHON_EDIT_HISTORY_LIMIT) {
+    stack.shift();
+  }
+  let totalChars = stack.reduce((total, item) => total + String(item || "").length, 0);
+  while (totalChars > PYTHON_EDIT_HISTORY_CHAR_LIMIT && stack.length > 1) {
+    totalChars -= String(stack.shift() || "").length;
+  }
+}
+
 function setPythonCodeText(text, options = {}) {
   if (!elements.pythonCodeText) {
     return;
@@ -1870,9 +2180,7 @@ function recordPythonEditSnapshot() {
     return;
   }
   state.pythonEditUndoStack.push(state.pythonEditLastText);
-  if (state.pythonEditUndoStack.length > PYTHON_EDIT_HISTORY_LIMIT) {
-    state.pythonEditUndoStack.shift();
-  }
+  trimPythonEditStack(state.pythonEditUndoStack);
   state.pythonEditRedoStack = [];
   state.pythonEditLastText = nextText;
   updatePythonEditHistoryControls();
@@ -1902,6 +2210,7 @@ function applyPythonEditHistory(direction) {
   const currentText = elements.pythonCodeText.value;
   const nextText = sourceStack.pop();
   targetStack.push(currentText);
+  trimPythonEditStack(targetStack);
   state.pythonEditApplyingHistory = true;
   elements.pythonCodeText.value = nextText;
   state.pythonEditApplyingHistory = false;
@@ -2374,12 +2683,27 @@ async function codesysGitSync() {
 }
 
 async function loadCodesysStatus() {
-  if (!elements.codesysProjectPath) {
+  if (!elements.codesysProjectDirectory) {
     return;
   }
   try {
     const data = await requestJson("/api/codesys/status");
-    elements.codesysProjectPath.value = localStorage.getItem(state.codesysProjectKey) || data.defaultProject || "";
+    const storedProjectValue = localStorage.getItem(state.codesysProjectKey) || "";
+    let storedProjectDirectory = localStorage.getItem(state.codesysProjectDirectoryKey) || "";
+    let storedProjectPath = isCodesysProjectFilePath(storedProjectValue) ? storedProjectValue : "";
+    if (!storedProjectDirectory && storedProjectValue) {
+      storedProjectDirectory = storedProjectPath ? parentPath(storedProjectPath) : storedProjectValue;
+    }
+    if (storedProjectValue && !storedProjectPath) {
+      localStorage.removeItem(state.codesysProjectKey);
+    }
+    if (!storedProjectDirectory) {
+      storedProjectDirectory = data.defaultProjectDirectory || parentPath(data.defaultProject || "");
+      storedProjectPath = storedProjectPath || data.defaultProject || "";
+    }
+
+    elements.codesysProjectDirectory.value = storedProjectDirectory;
+    state.codesysProjectDirectorySubmitted = normalizeLocalPathForCompare(storedProjectDirectory).toLowerCase();
     elements.codesysExportPath.value = localStorage.getItem(state.codesysExportKey) || data.defaultExportPath || "";
     elements.codesysSaveAsPath.value = localStorage.getItem(state.codesysSaveAsKey) || data.defaultSaveAsPath || "";
     elements.codesysGitRoot.value = localStorage.getItem(state.codesysGitRootKey) || data.gitRoot || "";
@@ -2391,11 +2715,11 @@ async function loadCodesysStatus() {
     setCodesysStatus(data.ok
       ? `${data.exportFile ? "已有XML缓存" : "未读XML"} | 点击快速读XML`
       : data.error || "CODESYS 未就绪");
+    await refreshCodesysProjectList({ silent: true, projectPath: storedProjectPath });
   } catch (error) {
     setCodesysStatus(error.message);
   }
   updateCodesysControls();
-  refreshCodesysProjectList({ silent: true }).catch(() => {});
 }
 
 function setCodesysProjectSwitchStatus(text) {
@@ -2413,21 +2737,23 @@ function renderCodesysProjectOptions(data) {
   if (!projects.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "同目录未找到 .project";
+    option.textContent = "文件夹内未找到 .project";
     elements.codesysProjectSelect.append(option);
     setCodesysProjectSwitchStatus("0 个工程");
     return;
   }
 
+  const currentProject = String(data.currentProject || "").trim();
+  const currentKey = normalizeLocalPathForCompare(currentProject).toLowerCase();
   for (const project of projects) {
     const option = document.createElement("option");
     option.value = project.path;
-    option.textContent = `${project.current ? "当前 | " : ""}${project.name}`;
+    option.textContent = project.name;
     option.title = project.path;
     option.dataset.exportPath = project.exportPath || "";
     option.dataset.saveAsPath = project.saveAsPath || "";
     elements.codesysProjectSelect.append(option);
-    if (project.current) {
+    if (project.current || (currentKey && normalizeLocalPathForCompare(project.path).toLowerCase() === currentKey)) {
       elements.codesysProjectSelect.value = project.path;
     }
   }
@@ -2438,29 +2764,34 @@ function renderCodesysProjectOptions(data) {
 }
 
 function applyCodesysProjectScanResult(data, options = {}) {
-  if (!data || !elements.codesysProjectPath) {
+  if (!data || !elements.codesysProjectDirectory) {
     return;
   }
 
   const projects = Array.isArray(data.projects) ? data.projects : [];
-  const projectPath = data.currentProject || (projects[0] ? projects[0].path : "");
-  const selectedProject = projects.find((project) => project.path === projectPath) || projects[0] || null;
+  if (data.searchRoot) {
+    elements.codesysProjectDirectory.value = data.searchRoot;
+  }
+  state.codesysProjectDirectorySubmitted = normalizeLocalPathForCompare(elements.codesysProjectDirectory.value).toLowerCase();
+  const projectPath = selectedCodesysProjectPath();
+  const projectKey = normalizeLocalPathForCompare(projectPath).toLowerCase();
+  const selectedProject = projects.find((project) => (
+    normalizeLocalPathForCompare(project.path).toLowerCase() === projectKey
+  )) || projects[0] || null;
   const exportPath = data.currentExportPath || (selectedProject ? selectedProject.exportPath : "");
   const saveAsPath = data.currentSaveAsPath || (selectedProject ? selectedProject.saveAsPath : "");
 
   if (!projectPath) {
-    elements.codesysProjectPath.value = "";
     elements.codesysExportPath.value = "";
     elements.codesysSaveAsPath.value = "";
     elements.codesysExportText.value = "";
+    localStorage.removeItem(state.codesysProjectKey);
     persistCodesysPaths();
-    if (!options.silent) {
-      setCodesysStatus("未找到 CODESYS 工程，路径已清空");
-    }
+    setCodesysStatus("工程文件夹内未找到 .project，已清空工程文件选择");
+    updateCodesysControls();
     return;
   }
 
-  elements.codesysProjectPath.value = projectPath;
   elements.codesysExportPath.value = exportPath || "";
   elements.codesysSaveAsPath.value = saveAsPath || "";
   if (!exportPath) {
@@ -2469,8 +2800,9 @@ function applyCodesysProjectScanResult(data, options = {}) {
   persistCodesysPaths();
 
   const xmlText = exportPath ? "已关联XML" : "未找到XML";
-  const rootText = data.searchRoot ? ` | 主目录: ${data.searchRoot}` : "";
-  setCodesysStatus(`${xmlText} | ${projects.length || 1} 个工程${rootText}`);
+  const rootText = data.searchRoot ? ` | 文件夹: ${data.searchRoot}` : "";
+  setCodesysStatus(`${xmlText} | ${projects.length || 1} 个工程文件${rootText}`);
+  updateCodesysControls();
   elements.workspaceInput.value = deriveWorkspace() || elements.workspaceInput.value;
 }
 
@@ -2478,21 +2810,52 @@ async function refreshCodesysProjectList(options = {}) {
   if (!elements.codesysProjectSelect) {
     return null;
   }
+  const requestId = ++state.codesysProjectScanRequestId;
   if (!options.silent) {
     setCodesysProjectSwitchStatus("读取中");
   }
   try {
+    const payload = codesysBasePayload();
+    if (Object.prototype.hasOwnProperty.call(options, "projectPath")) {
+      payload.projectPath = String(options.projectPath || "").trim();
+    }
     const data = await requestJson("/api/codesys/list-projects", {
       method: "POST",
-      body: JSON.stringify(codesysBasePayload())
+      body: JSON.stringify(payload)
     });
+    if (requestId !== state.codesysProjectScanRequestId) {
+      return null;
+    }
     renderCodesysProjectOptions(data);
     applyCodesysProjectScanResult(data, options);
     return data;
   } catch (error) {
-    setCodesysProjectSwitchStatus(error.message);
+    if (requestId === state.codesysProjectScanRequestId) {
+      setCodesysProjectSwitchStatus(error.message);
+    }
     return null;
   }
+}
+
+function clearCodesysProjectSelection() {
+  elements.codesysProjectSelect.textContent = "";
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = "等待读取工程文件";
+  elements.codesysProjectSelect.append(option);
+  elements.codesysExportPath.value = "";
+  elements.codesysSaveAsPath.value = "";
+  elements.codesysExportText.value = "";
+  localStorage.removeItem(state.codesysProjectKey);
+  persistCodesysPaths();
+  setCodesysProjectSwitchStatus("待读取");
+  updateCodesysControls();
+}
+
+function refreshCodesysProjectDirectory() {
+  state.codesysProjectDirectorySubmitted = normalizeLocalPathForCompare(elements.codesysProjectDirectory.value).toLowerCase();
+  clearCodesysProjectSelection();
+  return refreshCodesysProjectList({ silent: false, projectPath: "" });
 }
 
 function switchCodesysProjectFromSelect() {
@@ -2500,13 +2863,13 @@ function switchCodesysProjectFromSelect() {
   if (!option || !option.value) {
     return;
   }
-  elements.codesysProjectPath.value = option.value;
   elements.codesysExportPath.value = option.dataset.exportPath || "";
   elements.codesysSaveAsPath.value = option.dataset.saveAsPath || "";
   elements.codesysExportText.value = "";
   persistCodesysPaths();
   setCodesysStatus("已切换工程 | 点击快速读XML");
   setCodesysProjectSwitchStatus("已切换");
+  updateCodesysControls();
   elements.workspaceInput.value = deriveWorkspace() || elements.workspaceInput.value;
 }
 
@@ -2905,9 +3268,6 @@ async function pythonStopProcess() {
 async function requestHistory(options = {}) {
   const params = new URLSearchParams();
   params.set("limit", String(options.limit || 80));
-  if (options.prompt) {
-    params.set("prompt", options.prompt);
-  }
   if (options.id) {
     params.set("id", options.id);
   }
@@ -3064,6 +3424,54 @@ function buildSupplementedPrompt(basePrompt, supplements) {
   ].join("\n");
 }
 
+function currentRunHasFinalResponse() {
+  const currentRun = state.currentRun;
+  return Boolean(
+    state.running &&
+    currentRun &&
+    (currentRun.resultReceived || currentRun.turnCompleted || currentRun.turnFailed || currentRun.exitSeen)
+  );
+}
+
+function isQueuedContinuationRequest(request = state.runningSupplementRestart) {
+  return Boolean(request && request.kind === "continuation");
+}
+
+function requestRunningContinuation() {
+  if (!currentRunHasFinalResponse()) {
+    return false;
+  }
+
+  const prompt = elements.promptInput.value.trim();
+  const currentPrompt = String(state.currentRun.prompt || "").trim();
+  if (!prompt || prompt === currentPrompt) {
+    setStatus("当前结果正在收尾，请输入下一轮追问");
+    elements.historyStatus.textContent = "输入新问题后会在当前结果保存完成后继续";
+    elements.promptInput.focus();
+    return true;
+  }
+
+  state.runningSupplementRestart = {
+    kind: "continuation",
+    prompt,
+    requestedAt: new Date().toISOString()
+  };
+  localStorage.removeItem(state.lastPromptKey);
+  elements.promptInput.value = "";
+  appendReasoning("continue", "已排队下一轮追问", `当前结果保存完成后继续：\n${prompt}`, null, false);
+  setStatus("已排队下一轮追问");
+  setThinking("正在保存当前结果", "保存完成后会把当前结果作为上下文启动下一轮追问", true);
+  elements.historyStatus.textContent = "当前结果保存后自动继续追问";
+  updateContinueRunButtonState();
+  return true;
+}
+
+function requestRunningPromptHandoff() {
+  return currentRunHasFinalResponse()
+    ? requestRunningContinuation()
+    : requestRunningSupplementRestart();
+}
+
 function requestRunningSupplementRestart() {
   if (!state.running || !state.currentRun) {
     return false;
@@ -3078,7 +3486,10 @@ function requestRunningSupplementRestart() {
     return true;
   }
 
-  const existing = state.runningSupplementRestart || {
+  const existing = state.runningSupplementRestart && !isQueuedContinuationRequest()
+    ? state.runningSupplementRestart
+    : {
+    kind: "supplement",
     basePrompt: state.currentRun.basePrompt || state.currentRun.prompt || "",
     supplements: Array.isArray(state.currentRun.runningSupplements)
       ? state.currentRun.runningSupplements.slice()
@@ -3112,12 +3523,11 @@ function renderHistoryItem(record, variant = "list") {
   title.textContent = record.promptPreview || record.prompt || "无指令内容";
   const meta = document.createElement("span");
   const status = STATUS_LABELS[record.status] || record.status || "未知";
-  const scoreText = record.score == null ? "" : ` | 相似 ${Math.round(record.score * 100)}%`;
   const mcpText = Array.isArray(record.mcpTools) && record.mcpTools.length ? ` | MCP ${mcpToolsText(record.mcpTools)}` : "";
   const agentText = ` | 智能体 ${record.agentLabel || AGENT_LABELS[record.activeAgentProfile] || AGENT_LABELS[record.agentProfile] || "自动总控"}`;
   const parentText = record.parentHistoryId ? " | 续问" : "";
   const favoriteText = record.favorite ? " | 已收藏" : "";
-  meta.textContent = `${formatDate(record.createdAt)} | ${status}${agentText} | 推理 ${formatReasoningLabel(record.reasoningEffort, record.requestedReasoningEffort)}${favoriteText}${parentText}${mcpText}${scoreText}`;
+  meta.textContent = `${formatDate(record.createdAt)} | ${status}${agentText} | 推理 ${formatReasoningLabel(record.reasoningEffort, record.requestedReasoningEffort)}${favoriteText}${parentText}${mcpText}`;
   head.append(title, meta);
 
   const preview = document.createElement("p");
@@ -3156,13 +3566,6 @@ function renderHistoryItem(record, variant = "list") {
   continueButton.textContent = "继续追问";
   actions.append(continueButton);
 
-  const useButton = document.createElement("button");
-  useButton.type = "button";
-  useButton.dataset.historyAction = "use";
-  useButton.dataset.historyId = record.id;
-  useButton.textContent = "使用结果";
-  actions.append(useButton);
-
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.className = "danger-link";
@@ -3174,8 +3577,6 @@ function renderHistoryItem(record, variant = "list") {
   item.append(head, preview, actions);
   return item;
 }
-
-function renderHistoryMatches() {}
 
 function renderHistoryList() {
   elements.historyList.textContent = "";
@@ -3189,11 +3590,10 @@ function renderHistoryList() {
   }
 }
 
-async function refreshHistory(prompt = elements.promptInput.value.trim()) {
+async function refreshHistory() {
   try {
-    const data = await requestHistory({ prompt, limit: 80, favoriteOnly: state.historyFavoriteOnly });
+    const data = await requestHistory({ limit: 80, favoriteOnly: state.historyFavoriteOnly });
     state.history = data.records || [];
-    state.historyMatches = data.matches || [];
     state.historyFavoriteCount = Number(data.favoriteCount || 0);
     state.historyTotalCount = Number(data.totalCount || state.history.length);
     updateHistoryStatusText();
@@ -3203,15 +3603,6 @@ async function refreshHistory(prompt = elements.promptInput.value.trim()) {
     elements.historyStatus.textContent = error.message;
     setHistoryEmpty(elements.historyList, "历史读取失败");
   }
-}
-
-function scheduleHistoryLookup() {
-  if (state.historyLookupTimer) {
-    window.clearTimeout(state.historyLookupTimer);
-  }
-  state.historyLookupTimer = window.setTimeout(() => {
-    refreshHistory().catch(() => {});
-  }, 300);
 }
 
 async function loadHistoryRecord(id) {
@@ -3255,7 +3646,7 @@ async function clearNonFavoriteHistory() {
     state.lastSavedRecord = null;
     updateContinueRunButtonState();
   }
-  await refreshHistory(elements.promptInput.value.trim());
+  await refreshHistory();
   elements.historyStatus.textContent = `已清空 ${Number(data.deleted || 0)} 条非收藏历史，保留收藏 ${Number(data.remaining || 0)} 条`;
 }
 
@@ -3317,7 +3708,7 @@ async function mergeContinuationHistoryPayload(payload) {
   };
 }
 
-function showHistoryRecord(record, reused = false, options = {}) {
+function showHistoryRecord(record, options = {}) {
   resetRunBuffers();
   state.currentRun = null;
   state.historySaved = true;
@@ -3333,12 +3724,13 @@ function showHistoryRecord(record, reused = false, options = {}) {
     `工作目录: ${record.workspace || "-"}`,
     `状态: ${STATUS_LABELS[record.status] || record.status || "-"}`,
     `智能体: ${record.agentLabel || AGENT_LABELS[record.activeAgentProfile] || AGENT_LABELS[record.agentProfile] || "自动总控"}`,
+    `模型: ${formatModelLabel(record.model, record.modelMode, record.modelSource)}`,
     `推理强度: ${formatReasoningLabel(record.reasoningEffort, record.requestedReasoningEffort)}`,
     `MCP 工具: ${mcpToolsText(record.mcpTools || [])}`,
     record.parentHistoryId ? `续问来源: ${record.parentHistoryId}` : ""
   ].filter(Boolean).join("\n");
 
-  appendReasoning("history", reused ? "复用历史记录" : "历史记录", meta, null, false);
+  appendReasoning("history", "历史记录", meta, null, false);
 
   const mergedHistory = isMergedHistoryRecord(record);
   const reasoningEvents = Array.isArray(record.reasoningEvents) ? record.reasoningEvents : [];
@@ -3361,38 +3753,13 @@ function showHistoryRecord(record, reused = false, options = {}) {
   }
 
   state.resultTexts = record.resultText ? [record.resultText] : [];
-  setStatus(reused ? "已复用历史结果" : "正在查看历史");
-  setThinking(reused ? "已复用相同历史" : "历史推理记录", reused ? "相同指令命中历史记录，已显示保存的过程和结果" : "正在查看已保存的过程和结果", false);
+  elements.resultLog.dataset.historyId = record.id || "";
+  setStatus("正在查看历史");
+  setThinking("历史推理记录", "正在查看已保存的过程和结果", false);
   elements.runMeta.textContent = record.id ? `历史 ${record.id.slice(0, 8)}` : "历史记录";
-  elements.resultStatus.textContent = reused ? "复用历史结果" : "历史结果";
-  elements.historyStatus.textContent = reused ? "复用历史结果" : "历史已拉取";
+  elements.resultStatus.textContent = "历史结果";
+  elements.historyStatus.textContent = "历史已拉取";
   updateContinueRunButtonState();
-  scheduleHistoryLookup();
-}
-
-async function findExactReusable(prompt) {
-  if (!elements.autoReuseToggle.checked) {
-    return null;
-  }
-  try {
-    const data = await requestHistory({ prompt, details: true, limit: 20 });
-    state.historyMatches = data.matches || [];
-    renderHistoryMatches();
-    const currentWorkspace = (deriveWorkspace() || elements.workspaceInput.value).trim().toLowerCase();
-    const currentMcpKey = selectedMcpTools().slice().sort().join("|");
-    const currentParentId = state.continueFromRecord ? state.continueFromRecord.id : "";
-    const currentActiveAgent = inferAgentProfileForPrompt(state.agentProfile || "auto", prompt);
-    return state.historyMatches.find((record) => {
-      const sameWorkspace = String(record.workspace || "").trim().toLowerCase() === currentWorkspace;
-      const recordMcpKey = (Array.isArray(record.mcpTools) ? record.mcpTools : []).slice().sort().join("|");
-      const sameParent = String(record.parentHistoryId || "") === currentParentId;
-      const recordActiveAgent = record.activeAgentProfile || record.agentProfile || "auto";
-      const sameAgent = String(recordActiveAgent) === currentActiveAgent;
-      return record.score === 1 && sameWorkspace && recordMcpKey === currentMcpKey && sameParent && sameAgent && record.resultText;
-    });
-  } catch {
-    return null;
-  }
 }
 
 async function saveHistoryRecord(status, extra = {}) {
@@ -3422,8 +3789,11 @@ async function saveHistoryRecord(status, extra = {}) {
       throw new Error(data.error || "历史保存失败");
     }
     state.historySaved = true;
-    if (status === "completed" && data.record && data.record.id) {
-      state.lastSavedRecord = data.record;
+    if (data.record && data.record.id) {
+      elements.resultLog.dataset.historyId = data.record.id;
+      if (status === "completed" || data.record.resultText) {
+        state.lastSavedRecord = data.record;
+      }
     }
     if (state.currentRun.parentHistoryId && data.record && data.record.id) {
       state.continueFromRecord = {
@@ -3443,9 +3813,9 @@ async function saveHistoryRecord(status, extra = {}) {
       elements.promptInput.placeholder = "继续输入下一个追问，会基于刚刚保存的结果继续";
     }
     elements.historyStatus.textContent = merged ? "续问已合并到原历史" : "历史已保存";
-    await refreshHistory(elements.promptInput.value.trim());
+    await refreshHistory();
     updateContinueRunButtonState();
-    return status === "completed" ? data.record || null : null;
+    return data.record || null;
   } catch (error) {
     state.historySaved = false;
     elements.historyStatus.textContent = error.message;
@@ -3456,6 +3826,109 @@ async function saveHistoryRecord(status, extra = {}) {
 }
 
 function handleStreamEvent(eventName, data) {
+  if (eventName === "approval-aborted") {
+    hideApprovalPrompt();
+    if (state.currentRun) {
+      state.currentRun.waitKind = "approval";
+      state.currentRun.waitLabel = "外层授权已取消";
+      state.currentRun.lastEventDetail = data.detail || data.message || "";
+      state.currentRun.approvalDeadlineAt = 0;
+      state.currentRun.approvalAbortDetected = true;
+    }
+    const detail = [
+      data.message || "外层授权已取消，本轮不会再次自动重试。",
+      data.detail,
+      "本地网页客户端不能替外层 Codex 宿主点击 Yes；重新运行前请先允许外层授权，或改用无需该授权的方法。"
+    ].filter(Boolean).join("\n");
+    appendReasoning("approval", "外层授权已取消", detail, data);
+    setStatus("外层授权已取消");
+    setThinking("已停止授权重放", "本轮不会再次自动重试同一命令", false, "warning");
+    return;
+  }
+
+  if (eventName === "approval-required") {
+    if (state.currentRun) {
+      state.currentRun.waitKind = data.kind || "approval";
+      state.currentRun.waitLabel = data.kind === "input" ? "等待人工输入" : "等待权限确认";
+      state.currentRun.lastEventDetail = data.detail || data.message || "";
+      state.currentRun.approvalAutoEnabled = data.autoApprovalEnabled === true;
+      state.currentRun.approvalDeadlineAt = Number(data.deadlineAt || 0);
+    }
+    const title = data.kind === "input" ? "任务等待人工输入" : "任务等待授权";
+    const detail = [data.message, data.detail].filter(Boolean).join("\n");
+    appendReasoning("approval", title, detail, data);
+    setStatus(title);
+    setThinking(title, detail || "客户端正在等待你的选择", true, "warning");
+    showApprovalPrompt(data);
+    return;
+  }
+
+  if (eventName === "self-check") {
+    if (state.currentRun) {
+      state.currentRun.serverIdleMs = Number(data.idleMs || 0);
+      state.currentRun.lastHeartbeatAt = Date.now();
+      state.currentRun.selfChecking = true;
+      state.currentRun.selfCheckMs = Number(data.selfCheckMs || state.currentRun.selfCheckMs || 0);
+      state.currentRun.selfCheckCount = Number(data.selfCheckCount || state.currentRun.selfCheckCount || 0);
+      state.currentRun.waitKind = data.waitKind || state.currentRun.waitKind || "model";
+      state.currentRun.waitLabel = data.waitLabel || state.currentRun.waitLabel || "";
+      state.currentRun.effectiveTimeoutMs = Number(data.effectiveTimeoutMs || state.currentRun.effectiveTimeoutMs || 0);
+      state.currentRun.lastEventDetail = data.lastEventDetail || state.currentRun.lastEventDetail || "";
+    }
+    const recoveryCount = Number(data.recoveryCount || 0);
+    const recoveryLimit = Number(data.recoveryLimit || 0);
+    const recoveryRemaining = data.recoveryEligible && data.recoveryAtMs > data.idleMs
+      ? `${durationText(data.recoveryAtMs - data.idleMs)}后自动恢复（第 ${recoveryCount + 1}/${recoveryLimit} 次）`
+      : "";
+    const interactionText = data.waitKind === "approval" || data.waitKind === "input"
+      ? `客户端已显示处理界面；将按上限自动恢复（最多 ${recoveryLimit} 次），或停止任务。`
+      : "";
+    const detail = [
+      data.message || "watchdog 已开始自检。",
+      `等待阶段: ${data.waitLabel || data.waitKind || "未知"}`,
+      `子进程: ${data.processAlive ? "仍在运行" : "已退出或丢失"}`,
+      recoveryRemaining,
+      interactionText,
+      data.lastEventName ? `最后事件: ${data.lastEventName}` : "",
+      data.lastEventDetail ? `事件内容: ${data.lastEventDetail}` : ""
+    ].filter(Boolean).join("\n");
+    appendReasoning("self-check", "无响应自检", detail, data);
+    setStatus("正在自检");
+    setThinking("长时间无响应，正在自检", detail.replace(/\n/g, "；"), true, "warning");
+    return;
+  }
+
+  if (eventName === "recovery") {
+    hideApprovalPrompt();
+    const recoveryFailed = data.action === "failed";
+    if (state.currentRun) {
+      state.currentRun.watchdogRecoveryCount = Number(data.recoveryCount || state.currentRun.watchdogRecoveryCount || 0);
+      state.currentRun.selfChecking = true;
+      state.currentRun.lastProgressLabel = recoveryFailed ? "watchdog 恢复失败，正在收尾" : "watchdog 正在换方法推进";
+    }
+    const detail = [
+      data.message || "watchdog 正在恢复任务。",
+      data.strategy ? `本次策略: ${data.strategy}` : "",
+      data.recoveryCount && data.recoveryLimit ? `恢复次数: ${data.recoveryCount}/${data.recoveryLimit}` : "",
+      `无响应时间: ${durationText(data.idleMs)}`,
+      data.lastEventName ? `最后事件: ${data.lastEventName}` : "",
+      data.lastEventDetail ? `事件内容: ${data.lastEventDetail}` : ""
+    ].filter(Boolean).join("\n");
+    appendReasoning("recovery", recoveryFailed ? "自动恢复失败" : "正在自动恢复", detail, data);
+    setStatus(recoveryFailed ? "自动恢复失败，正在收尾" : "正在自动恢复");
+    setThinking(
+      recoveryFailed ? "自动恢复失败，正在安全收尾" : "正在换方法推进任务",
+      recoveryFailed
+        ? "旧模型进程未及时退出，本次任务将结束，不会继续留下运行状态。"
+        : data.stateAware
+          ? "正在携带现场状态恢复；新任务会先核对已完成步骤，再换一种方法取得新证据。"
+           : "正在重启模型进程；新任务会先自检，再换一种方法取得新证据。",
+      true,
+      "warning"
+    );
+    return;
+  }
+
   if (eventName === "retry") {
     if (state.currentRun) {
       state.currentRun.lastProgressLabel = "模型连接自动重试";
@@ -3476,36 +3949,61 @@ function handleStreamEvent(eventName, data) {
     return;
   }
 
-  if (eventName === "retry-started") {
+  if (eventName === "retry-started" || eventName === "recovery-started") {
+    hideApprovalPrompt();
+    const watchdogRecovery = eventName === "recovery-started";
     const modeLabel = RUN_MODES[state.mode].label;
     const reasoningLabel = formatReasoningLabel(data.reasoningEffort || (state.currentRun ? state.currentRun.reasoningEffort : state.reasoningEffort), data.requestedReasoningEffort || (state.currentRun ? state.currentRun.requestedReasoningEffort : state.reasoningEffort));
+    const modelLabel = formatModelLabel(
+      data.model || (state.currentRun ? state.currentRun.model : ""),
+      data.modelMode || (state.currentRun ? state.currentRun.modelMode : ""),
+      data.modelSource || (state.currentRun ? state.currentRun.modelSource : "")
+    );
     const agentLabel = data.agentLabel || AGENT_LABELS[data.activeAgentProfile] || AGENT_LABELS[data.agentProfile] || "自动总控";
     const mcpText = mcpToolsText((data.mcpTools || []).map((item) => item.name || item));
     const maintenanceText = data.maintenanceContext ? "已载入" : "未启用";
-    const attemptText = data.attempt && data.maxAttempts ? ` | 重试 ${data.attempt}/${data.maxAttempts}` : "";
-    elements.runMeta.textContent = `PID ${data.pid || "-"} | ${modeLabel} | 智能体 ${agentLabel} | 推理 ${reasoningLabel} | MCP ${mcpText} | 维护 ${maintenanceText}${attemptText}`;
+    const attemptText = watchdogRecovery
+      ? ` | 自恢复 ${data.watchdogRecoveryCount || 1}/${data.watchdogRecoveryLimit || 1}`
+      : data.attempt && data.maxAttempts ? ` | 重试 ${data.attempt}/${data.maxAttempts}` : "";
+    elements.runMeta.textContent = `PID ${data.pid || "-"} | ${modeLabel} | 权限 ${sandboxLabel(data.sandbox)} | 智能体 ${agentLabel} | 模型 ${modelLabel} | 推理 ${reasoningLabel} | MCP ${mcpText} | 维护 ${maintenanceText}${attemptText}`;
     if (state.currentRun) {
       state.currentRun.pid = data.pid || null;
-      state.currentRun.lastProgressLabel = "自动重试已启动";
+      state.currentRun.lastProgressLabel = watchdogRecovery ? "watchdog 自恢复已启动" : "自动重试已启动";
+      state.currentRun.selfChecking = false;
+      state.currentRun.watchdogRecoveryCount = Number(data.watchdogRecoveryCount || state.currentRun.watchdogRecoveryCount || 0);
       state.currentRun.retryAttempt = Number(data.attempt || state.currentRun.retryAttempt || 0);
       state.currentRun.maxAttempts = Number(data.maxAttempts || state.currentRun.maxAttempts || 0);
       state.currentRun.providerRetryCount = Number(data.providerRetryCount || state.currentRun.providerRetryCount || 0);
       state.currentRun.provider = data.provider || state.currentRun.provider || state.codexConfig || null;
       state.currentRun.providerProxyBaseUrl = data.providerProxyBaseUrl || state.currentRun.providerProxyBaseUrl || "";
+      state.currentRun.model = data.model || state.currentRun.model || "";
+      state.currentRun.requestedModel = data.requestedModel || state.currentRun.requestedModel || "";
+      state.currentRun.modelMode = data.modelMode || state.currentRun.modelMode || "";
+      state.currentRun.modelSource = data.modelSource || state.currentRun.modelSource || "";
     }
-    appendReasoning("retry", "自动重试已启动", `PID ${data.pid || "-"}\n${data.attempt && data.maxAttempts ? `尝试: ${data.attempt}/${data.maxAttempts}` : ""}`, data);
-    setStatus("自动重试已启动");
-    setThinking("自动重试已启动", data.attempt && data.maxAttempts ? `正在执行第 ${data.attempt}/${data.maxAttempts} 次推理` : "正在重新连接模型服务并推理", true);
+    const title = watchdogRecovery ? "自恢复已启动" : "自动重试已启动";
+    appendReasoning(watchdogRecovery ? "recovery" : "retry", title, `PID ${data.pid || "-"}\n${data.attempt && data.maxAttempts ? `尝试: ${data.attempt}/${data.maxAttempts}` : ""}`, data);
+    setStatus(title);
+    const restartedDetail = watchdogRecovery
+      ? data.recoveryStateAware ? "已携带现场状态启动新的模型进程，正在换一种方法取得新证据" : "已启动新的模型进程，先自检再继续推进"
+      : (data.attempt && data.maxAttempts ? `正在执行第 ${data.attempt}/${data.maxAttempts} 次推理` : "正在重新连接模型服务并推理");
+    rememberCurrentThought(title, restartedDetail);
+    setThinking(title, restartedDetail, true);
     return;
   }
 
   if (eventName === "ready") {
     const modeLabel = RUN_MODES[state.mode].label;
     const reasoningLabel = formatReasoningLabel(data.reasoningEffort || (state.currentRun ? state.currentRun.reasoningEffort : state.reasoningEffort), data.requestedReasoningEffort || (state.currentRun ? state.currentRun.requestedReasoningEffort : state.reasoningEffort));
+    const modelLabel = formatModelLabel(
+      data.model || (state.currentRun ? state.currentRun.model : ""),
+      data.modelMode || (state.currentRun ? state.currentRun.modelMode : ""),
+      data.modelSource || (state.currentRun ? state.currentRun.modelSource : "")
+    );
     const agentLabel = data.agentLabel || AGENT_LABELS[data.activeAgentProfile] || AGENT_LABELS[data.agentProfile] || "自动总控";
     const mcpText = mcpToolsText((data.mcpTools || []).map((item) => item.name || item));
     const maintenanceText = data.maintenanceContext ? "已载入" : "未启用";
-    elements.runMeta.textContent = `PID ${data.pid || "-"} | ${modeLabel} | 智能体 ${agentLabel} | 推理 ${reasoningLabel} | MCP ${mcpText} | 维护 ${maintenanceText}`;
+    elements.runMeta.textContent = `PID ${data.pid || "-"} | ${modeLabel} | 权限 ${sandboxLabel(data.sandbox)} | 智能体 ${agentLabel} | 模型 ${modelLabel} | 推理 ${reasoningLabel} | MCP ${mcpText} | 维护 ${maintenanceText}`;
     if (state.currentRun) {
       state.currentRun.runId = data.runId;
       state.currentRun.workspace = data.workspace || state.currentRun.workspace;
@@ -3518,15 +4016,26 @@ function handleStreamEvent(eventName, data) {
       state.currentRun.agentLabel = agentLabel;
       state.currentRun.provider = data.provider || state.currentRun.provider || state.codexConfig || null;
       state.currentRun.providerProxyBaseUrl = data.providerProxyBaseUrl || "";
+      state.currentRun.model = data.model || state.currentRun.model || "";
+      state.currentRun.requestedModel = data.requestedModel || state.currentRun.requestedModel || "";
+      state.currentRun.modelMode = data.modelMode || state.currentRun.modelMode || "";
+      state.currentRun.modelSource = data.modelSource || state.currentRun.modelSource || "";
+      state.currentRun.selfCheckMs = Number(data.selfCheckMs || 0);
       state.currentRun.stallWarningMs = Number(data.stallWarningMs || 0);
+      state.currentRun.safeRestartMs = Number(data.safeRestartMs || 0);
       state.currentRun.stallTimeoutMs = Number(data.stallTimeoutMs || 0);
       state.currentRun.toolIdleTimeoutMs = Number(data.toolIdleTimeoutMs || 0);
+      state.currentRun.postToolIdleTimeoutMs = Number(data.postToolIdleTimeoutMs || 0);
+      state.currentRun.watchdogRecoveryLimit = Number(data.watchdogRecoveryLimit || 0);
+      state.currentRun.watchdogRecoveryCount = Number(data.watchdogRecoveryCount || 0);
       state.currentRun.pid = data.pid || null;
       state.currentRun.backendMissingSince = 0;
+      state.currentRun.approvalAutoEnabled = data.autoApprovalEnabled === true;
     }
     noteRunProgress("Codex 已启动");
+    rememberCurrentThought("正在分析任务", "Codex 已启动，正在分析你的指令并选择执行步骤");
     setStatus("已启动");
-    setThinking("正在思考运行", "Codex 已启动，正在分析你的指令", true);
+    showLiveThought("正在思考运行", "Codex 已启动，正在分析你的指令");
     const continueText = data.continueFrom ? `\n续问历史: ${data.continueFrom.id} | ${data.continueFrom.promptPreview || ""}` : "";
     const addDirsText = Array.isArray(data.addDirs) && data.addDirs.length
       ? `\n附加可写目录:\n${data.addDirs.map((item) => `- ${item}`).join("\n")}`
@@ -3537,9 +4046,15 @@ function handleStreamEvent(eventName, data) {
     const maintenanceDetail = data.maintenanceContext && data.maintenance
       ? `\n维护上下文: 已载入\n维护记录: ${data.maintenance.sourceFile || data.maintenance.file || "-"}`
       : "\n维护上下文: 未启用";
-    appendReasoning("ready", "启动", `会话 ${data.runId}\n工作目录: ${data.workspace}\n智能体: ${agentLabel}${addDirsText}${providerProxyText}\nMCP 工具: ${mcpText}${maintenanceDetail}${continueText}\n${data.command || ""}`, data);
+    const watchdogDetail = `\n自检策略: ${durationText(data.selfCheckMs)}无事件后自检；整轮任务最多状态感知恢复 ${data.watchdogRecoveryLimit || 0} 次，每次换方法取得新证据；最终超时 ${durationText(data.stallTimeoutMs)}`;
+    const approvalDetail = data.fullAccess
+      ? `\n权限策略: 完全执行、无需人工批准；异常授权等待${data.autoApprovalEnabled ? `将在 ${durationText(data.autoApprovalDelayMs)} 后自动恢复` : "等待界面处理"}`
+      : "\n权限策略: 非交互工作区沙箱；越权时尝试替代方案或进入授权恢复界面";
+    appendReasoning("ready", "启动", `会话 ${data.runId}\n工作目录: ${data.workspace}\n智能体: ${agentLabel}\n模型: ${modelLabel}\n推理强度: ${reasoningLabel}${addDirsText}${providerProxyText}\nMCP 工具: ${mcpText}${maintenanceDetail}${watchdogDetail}${approvalDetail}${continueText}\n${data.command || ""}`, data);
     if (data.approvalDowngraded === true) {
       appendReasoning("warning", "已关闭交互批准", "网页客户端不支持 Codex 交互批准弹窗，本次已自动改为非交互运行，避免任务卡在等待确认。", data);
+    } else {
+      appendReasoning("policy", data.fullAccess ? "完全执行权限" : "非交互权限模式", data.fullAccess ? "当前任务已取消 Codex 文件沙箱并关闭人工批准；仍受 Windows 进程令牌、账号凭据和硬件现场条件限制。" : "当前任务不等待 Codex 弹窗；异常授权等待会显示恢复或停止操作。", data);
     }
     return;
   }
@@ -3550,10 +4065,19 @@ function handleStreamEvent(eventName, data) {
       state.currentRun.serverIdleMs = Number(data.idleMs || 0);
       state.currentRun.lastHeartbeatAt = Date.now();
       state.currentRun.stallWarning = data.stalled === true;
+      state.currentRun.selfChecking = data.selfChecking === true;
+      state.currentRun.selfCheckMs = Number(data.selfCheckMs || state.currentRun.selfCheckMs || 0);
+      state.currentRun.selfCheckCount = Number(data.selfCheckCount || state.currentRun.selfCheckCount || 0);
       state.currentRun.stallWarningMs = Number(data.warningMs || state.currentRun.stallWarningMs || 0);
       state.currentRun.stallTimeoutMs = Number(data.timeoutMs || state.currentRun.stallTimeoutMs || 0);
       state.currentRun.toolWaiting = data.toolWaiting === true;
       state.currentRun.toolIdleTimeoutMs = Number(data.toolIdleTimeoutMs || state.currentRun.toolIdleTimeoutMs || 0);
+      state.currentRun.postToolIdleTimeoutMs = Number(data.postToolIdleTimeoutMs || state.currentRun.postToolIdleTimeoutMs || 0);
+      state.currentRun.waitKind = data.waitKind || state.currentRun.waitKind || "model";
+      state.currentRun.waitLabel = data.waitLabel || state.currentRun.waitLabel || "";
+      state.currentRun.effectiveTimeoutMs = Number(data.effectiveTimeoutMs || state.currentRun.effectiveTimeoutMs || 0);
+      state.currentRun.watchdogRecoveryCount = Number(data.watchdogRecoveryCount || state.currentRun.watchdogRecoveryCount || 0);
+      state.currentRun.watchdogRecoveryLimit = Number(data.watchdogRecoveryLimit || state.currentRun.watchdogRecoveryLimit || 0);
       state.currentRun.lastEventDetail = data.lastEventDetail || state.currentRun.lastEventDetail || "";
       state.currentRun.lastProgressLabel = data.lastEventName || state.currentRun.lastProgressLabel || "";
     }
@@ -3579,20 +4103,27 @@ function handleStreamEvent(eventName, data) {
       return;
     }
     if (data.stalled === true) {
-      const timeoutMs = data.toolWaiting === true
-        ? Number(data.toolIdleTimeoutMs || data.timeoutMs || 0)
-        : Number(data.timeoutMs || 0);
+      const timeoutMs = Number(data.effectiveTimeoutMs || data.timeoutMs || 0);
       const remaining = Math.max(0, timeoutMs - Number(data.idleMs || 0));
       setStatus("可能卡住");
       setThinking(
-        data.toolWaiting === true ? "本地工具调用未返回" : "任务可能卡住",
-        `已 ${durationText(data.idleMs)} 没有新进展${remaining ? `，${durationText(remaining)}后自动停止` : ""}`,
+        data.waitLabel || (data.toolWaiting === true ? "本地工具调用未返回" : "任务可能卡住"),
+        `已 ${durationText(data.idleMs)} 没有新进展${remaining ? `，${durationText(remaining)}后自动恢复` : ""}`,
+        true,
+        "warning"
+      );
+    } else if (data.selfChecking === true) {
+      const remaining = Math.max(0, Number(data.effectiveTimeoutMs || 0) - Number(data.idleMs || 0));
+      setStatus("正在自检");
+      setThinking(
+        "长时间无响应，正在自检",
+        `${data.waitLabel || "正在判断等待阶段"}；已 ${durationText(data.idleMs)} 无新事件${remaining ? `，${durationText(remaining)}后自动恢复` : ""}`,
         true,
         "warning"
       );
     } else {
       setStatus("正在思考运行");
-      setThinking("正在思考运行", `已运行 ${seconds} 秒，Codex 仍在处理`, true);
+      showLiveThought("正在思考运行", "Codex 正在处理", `已运行 ${seconds} 秒`);
     }
     return;
   }
@@ -3602,19 +4133,27 @@ function handleStreamEvent(eventName, data) {
       state.currentRun.serverIdleMs = Number(data.idleMs || 0);
       state.currentRun.lastHeartbeatAt = Date.now();
       state.currentRun.stallWarning = true;
+      state.currentRun.selfChecking = true;
       state.currentRun.stallWarningMs = Number(data.warningMs || state.currentRun.stallWarningMs || 0);
       state.currentRun.stallTimeoutMs = Number(data.timeoutMs || state.currentRun.stallTimeoutMs || 0);
       state.currentRun.toolWaiting = data.toolWaiting === true || data.toolIdle === true;
       state.currentRun.toolIdleTimeoutMs = Number(data.toolIdleTimeoutMs || state.currentRun.toolIdleTimeoutMs || 0);
+      state.currentRun.postToolIdleTimeoutMs = Number(data.postToolIdleTimeoutMs || state.currentRun.postToolIdleTimeoutMs || 0);
+      state.currentRun.waitKind = data.waitKind || state.currentRun.waitKind || "";
+      state.currentRun.waitLabel = data.waitLabel || state.currentRun.waitLabel || "";
+      state.currentRun.effectiveTimeoutMs = Number(data.effectiveTimeoutMs || state.currentRun.effectiveTimeoutMs || 0);
       state.currentRun.lastEventDetail = data.lastEventDetail || state.currentRun.lastEventDetail || "";
     }
-    const title = data.toolIdle === true
-      ? "本地工具调用未返回，已自动停止"
-      : data.autoStopped ? "任务无进展，已自动停止" : "任务可能卡住";
+    const title = data.interactionRequired === true
+      ? "检测到交互等待，已自动停止"
+      : data.toolIdle === true
+        ? "工具链无进展，已自动停止"
+        : data.autoStopped ? "任务无进展，已自动停止" : "任务可能卡住";
     const detail = [
       data.message || "Codex 长时间没有新进展。",
       `无进展时间: ${durationText(data.idleMs)}`,
       data.toolIdle === true && data.toolIdleTimeoutMs ? `本地工具超时: ${durationText(data.toolIdleTimeoutMs)}` : "",
+      data.waitLabel ? `等待阶段: ${data.waitLabel}` : "",
       data.lastEventName ? `最后事件: ${data.lastEventName}` : "",
       data.lastEventDetail ? `事件内容: ${data.lastEventDetail}` : ""
     ].filter(Boolean).join("\n");
@@ -3635,6 +4174,7 @@ function handleStreamEvent(eventName, data) {
       if (state.currentRun) {
         state.currentRun.resultReceived = true;
       }
+      updateContinueRunButtonState();
       elements.resultStatus.textContent = "收到结果";
       setStatus("已收到结果，正在收尾");
       setThinking("已收到结果，正在收尾", runningDetail("结果已进入结果框，正在等待 Codex 完成事件和历史保存"), true);
@@ -3644,6 +4184,7 @@ function handleStreamEvent(eventName, data) {
         state.currentRun.turnCompleted = type === "turn.completed";
         state.currentRun.turnFailed = type === "turn.failed";
       }
+      updateContinueRunButtonState();
       const completed = type === "turn.completed";
       setStatus(completed ? "推理完成，正在收尾" : "推理失败，正在收尾");
       setThinking(
@@ -3657,8 +4198,10 @@ function handleStreamEvent(eventName, data) {
       if (isErrorEvent(data)) {
         rememberRunError(formatted.text);
       }
+      const visibleDetail = compactVisibleThought(formatted.text) || `Codex 正在处理: ${formatted.title}`;
+      rememberCurrentThought(formatted.title, visibleDetail);
       setStatus("正在处理事件");
-      setThinking("正在思考运行", `收到 Codex 过程事件: ${formatted.title}`, true);
+      showLiveThought("正在思考运行", visibleDetail, `已运行 ${elapsedText()}`);
       appendReasoning("codex", formatted.title, formatted.text, data);
     }
     return;
@@ -3687,11 +4230,27 @@ function handleStreamEvent(eventName, data) {
   }
 
   if (eventName === "exit") {
+    hideApprovalPrompt();
     const seconds = Math.max(0, Math.round((data.durationMs || 0) / 1000));
     const code = data.code == null ? data.signal : data.code;
     const toolIdle = data.reason === "tool-idle" || data.signal === "TOOL_IDLE_TIMEOUT";
+    const postToolIdle = data.reason === "post-tool-idle";
+    const interactionRequired = data.reason === "interaction-required" || data.signal === "INTERACTION_REQUIRED";
+    const approvalAborted = data.approvalAbortDetected === true;
     if (data.stopped === true) {
-      if (state.runningSupplementRestart) {
+      if (isQueuedContinuationRequest()) {
+        recoverResultFromReasoningEvents();
+        appendReasoning("exit", "当前结果已收尾", "正在保存当前结果，保存完成后继续下一轮追问");
+        setStatus("正在保存当前结果");
+        setThinking("正在保存当前结果", "保存完成后会把本轮结果作为上下文继续追问", true);
+        elements.resultStatus.textContent = state.resultTexts.length ? "正在保存" : "未捕获到最终结果";
+        const continuationStatus = state.currentRun && state.currentRun.turnFailed
+          ? "failed"
+          : state.currentRun && (state.currentRun.resultReceived || state.currentRun.turnCompleted)
+            ? "completed"
+            : "stopped";
+        state.saveHistoryPromise = saveHistoryRecord(continuationStatus, { durationMs: data.durationMs });
+      } else if (state.runningSupplementRestart) {
         appendReasoning("exit", "旧推理已停止", "正在带入运行中补充重新启动推理");
         setStatus("正在带补充重新推理");
         setThinking("正在带补充重新推理", "旧推理已停止，正在启动包含补充说明的新任务", true);
@@ -3706,14 +4265,15 @@ function handleStreamEvent(eventName, data) {
       if (state.currentRun) {
         state.currentRun.exitSeen = true;
       }
+      updateContinueRunButtonState();
       return;
     }
     recoverResultFromReasoningEvents();
     appendReasoning("exit", "结束", `退出状态: ${code}\n耗时: ${seconds} 秒`);
-    setStatus(data.stalled ? (toolIdle ? "工具超时已停止" : "无进展已停止") : (data.code === 0 ? "运行完成" : "运行结束"));
+    setStatus(data.stalled ? (approvalAborted ? "外层授权已取消" : interactionRequired ? "交互等待已停止" : (toolIdle || postToolIdle) ? "工具链超时已停止" : "无进展已停止") : (data.code === 0 ? "运行完成" : "运行结束"));
     setThinking(
-      data.stalled ? (toolIdle ? "本地工具调用未返回，已自动停止" : "任务无进展，已自动停止") : (data.code === 0 ? "运行完成" : "运行结束"),
-      data.stalled ? `连续 ${durationText(data.idleMs)} 没有新进展` : `总耗时 ${seconds} 秒`,
+      data.stalled ? (approvalAborted ? "外层授权已取消，本轮已停止" : interactionRequired ? "检测到无法处理的交互等待，已自动停止" : (toolIdle || postToolIdle) ? "工具链无进展，已自动停止" : "任务无进展，已自动停止") : (data.code === 0 ? "运行完成" : "运行结束"),
+      data.stalled ? (approvalAborted ? "不会再次自动重试或原样重放同一命令" : `连续 ${durationText(data.idleMs)} 没有新进展`) : `总耗时 ${seconds} 秒`,
       false,
       data.stalled ? "warning" : ""
     );
@@ -3721,18 +4281,26 @@ function handleStreamEvent(eventName, data) {
     const failure = data.stalled
       ? {
           kind: "stalled",
-          status: toolIdle ? "工具超时已停止" : "无进展已停止",
-          title: toolIdle ? "本地工具调用超时" : "任务长时间无进展",
+          status: approvalAborted ? "外层授权已取消" : interactionRequired ? "交互等待已停止" : (toolIdle || postToolIdle) ? "工具链超时已停止" : "无进展已停止",
+          title: approvalAborted ? "外层宿主取消了授权" : interactionRequired ? "任务要求人工确认或输入" : (toolIdle || postToolIdle) ? "工具链长时间无进展" : "任务长时间无进展",
           text: [
-            toolIdle
-              ? "Codex 已开始本地工具调用，但长时间没有返回输出，客户端已自动结束任务。"
-              : "Codex 长时间没有返回新的模型或工具事件，客户端已自动结束任务，避免无限等待。",
+            approvalAborted
+              ? "外层授权已取消；客户端已经终止本轮，并禁止 watchdog 重放同一命令。客户端不能替外层 Codex 宿主点击 Yes。"
+              : interactionRequired
+              ? "客户端检测到权限确认或人工输入等待；授权恢复不可用或次数已用完，因此已自动结束，避免界面卡死。"
+              : (toolIdle || postToolIdle)
+                ? "Codex 工具链长时间没有继续返回进展，客户端已自动结束任务。"
+                : "Codex 长时间没有返回新的模型或工具事件，客户端已自动结束任务，避免无限等待。",
             `无进展时间: ${durationText(data.idleMs)}`,
             data.lastEventName ? `最后事件: ${data.lastEventName}` : "",
             data.lastEventDetail ? `事件内容: ${data.lastEventDetail}` : "",
-            toolIdle
-              ? "如果最后事件是 function_call 或 item.started，通常是本地命令执行或批准链路没有返回。"
-              : "可以检查最后一条工具调用后重新运行。"
+            approvalAborted
+              ? "如需继续，请重新发起任务并在外层只确认一次；也可以改用不需要该外层授权的方法。"
+              : interactionRequired
+              ? "客户端默认使用完全执行权限；如果仍需 Windows 管理员令牌、账号凭据或硬件现场确认，必须由外部条件满足后重新运行。"
+              : (toolIdle || postToolIdle)
+                ? "客户端已经使用过一次状态感知恢复；为避免无限循环，本次不再自动重启。"
+                : "可以检查最后一条事件后重新运行。"
           ].filter(Boolean).join("\n")
         }
       : classifyRunFailure(errorText, data);
@@ -3747,6 +4315,7 @@ function handleStreamEvent(eventName, data) {
     if (state.currentRun) {
       state.currentRun.exitSeen = true;
     }
+    updateContinueRunButtonState();
     state.saveHistoryPromise = saveHistoryRecord(data.code === 0 && !data.stalled ? "completed" : "failed", { durationMs: data.durationMs });
     return;
   }
@@ -3806,114 +4375,6 @@ function mcpToolsText(tools) {
   return tools.map((name) => MCP_LABELS[name] || name).join("、");
 }
 
-function documentKindLabel(kind) {
-  const labels = {
-    pdf: "PDF",
-    docx: "Word",
-    xlsx: "Excel",
-    text: "文本"
-  };
-  return labels[kind] || kind || "文档";
-}
-
-function updateDocumentControls() {
-  if (!elements.documentReadButton) {
-    return;
-  }
-  elements.documentReadButton.disabled = state.running || state.documentBusy;
-  elements.documentToPromptButton.disabled = !state.documentText;
-}
-
-function formatDocumentPreview(data) {
-  const info = [
-    `文件: ${data.fileName || "-"}`,
-    `类型: ${documentKindLabel(data.kind)}`,
-    `大小: ${formatFileSize(data.size)}`,
-    data.summary ? `摘要: ${data.summary}` : ""
-  ].filter(Boolean).join("\n");
-  const text = trimContextText(data.text || "", 30000) || "未提取到可读文本";
-  return `${info}\n\n${text}`;
-}
-
-async function readDocument() {
-  const filePath = elements.documentPath.value.trim();
-  if (!filePath) {
-    elements.documentStatus.textContent = "请输入文档路径";
-    elements.documentPath.focus();
-    return;
-  }
-
-  state.documentBusy = true;
-  updateDocumentControls();
-  elements.documentStatus.textContent = "正在读取文档";
-  elements.documentOutput.textContent = "正在读取...";
-  localStorage.setItem(state.documentPathKey, filePath);
-
-  try {
-    const response = await fetch("/api/document/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        filePath,
-        workspace: deriveWorkspace() || elements.workspaceInput.value
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || "文档读取失败");
-    }
-    state.documentText = data.text || "";
-    state.documentInfo = {
-      filePath: data.filePath || filePath,
-      fileName: data.fileName || filePath,
-      kind: data.kind || "document",
-      size: data.size || 0,
-      summary: data.summary || "",
-      metadata: data.metadata || null
-    };
-    elements.documentOutput.textContent = formatDocumentPreview(data);
-    const truncated = data.metadata && data.metadata.truncated ? " | 已截断" : "";
-    elements.documentStatus.textContent = `${documentKindLabel(data.kind)} | ${formatFileSize(data.size)} | ${state.documentText.length} 字${truncated}`;
-  } catch (error) {
-    state.documentText = "";
-    state.documentInfo = null;
-    elements.documentStatus.textContent = error.message;
-    elements.documentOutput.textContent = "文档读取失败";
-  } finally {
-    state.documentBusy = false;
-    updateDocumentControls();
-  }
-}
-
-function documentPromptSnippet() {
-  if (!state.documentText) {
-    return "";
-  }
-  const info = state.documentInfo || {};
-  return [
-    "请结合下面已读取的文档内容处理我的问题。",
-    "",
-    `【文档】${info.fileName || info.filePath || "当前文档"}`,
-    info.summary ? `摘要：${info.summary}` : "",
-    "",
-    trimContextText(state.documentText, 50000)
-  ].filter((item) => String(item || "").trim()).join("\n");
-}
-
-function appendDocumentToPrompt() {
-  const snippet = documentPromptSnippet();
-  if (!snippet) {
-    elements.documentStatus.textContent = "请先读取文档";
-    return;
-  }
-  const current = elements.promptInput.value.trim();
-  elements.promptInput.value = current ? `${current}\n\n${snippet}` : snippet;
-  localStorage.setItem(state.lastPromptKey, elements.promptInput.value);
-  elements.documentStatus.textContent = "文档内容已加入指令";
-  elements.promptInput.focus();
-  scheduleHistoryLookup();
-}
-
 function trimContextText(value, maxChars) {
   const text = String(value || "");
   if (text.length <= maxChars) {
@@ -3955,7 +4416,6 @@ function engineeringWorkspaceHasContent(context) {
     context.plc.output ||
     context.git.codesysRoot ||
     context.git.pythonRoot ||
-    (context.document && (context.document.filePath || context.document.text)) ||
     context.result.text
   );
 }
@@ -3967,7 +4427,6 @@ function buildEngineeringWorkspaceContext() {
   const pythonOutput = textFromElement(elements.pythonRunOutput);
   const resultText = textFromElement(elements.resultLog);
   const reasoningText = state.reasoningTexts.join("\n\n");
-  const documentInfo = state.documentInfo || {};
   return {
     capturedAt: new Date().toISOString(),
     title: "工程工作区",
@@ -3986,7 +4445,8 @@ function buildEngineeringWorkspaceContext() {
     },
     codesys: {
       status: elements.codesysPanelStatus ? elements.codesysPanelStatus.textContent : "",
-      projectPath: elements.codesysProjectPath ? elements.codesysProjectPath.value.trim() : "",
+      projectDirectory: elements.codesysProjectDirectory ? elements.codesysProjectDirectory.value.trim() : "",
+      projectPath: selectedCodesysProjectPath(),
       exportPath: elements.codesysExportPath ? elements.codesysExportPath.value.trim() : "",
       saveAsPath: elements.codesysSaveAsPath ? elements.codesysSaveAsPath.value.trim() : "",
       projectSwitchStatus: elements.codesysProjectSwitchStatus ? elements.codesysProjectSwitchStatus.textContent : "",
@@ -4012,14 +4472,6 @@ function buildEngineeringWorkspaceContext() {
       codeText: trimContextText(pythonText, 24000),
       runOutput: trimContextText(pythonOutput, 8000)
     },
-    document: {
-      status: elements.documentStatus ? elements.documentStatus.textContent : "",
-      filePath: documentInfo.filePath || (elements.documentPath ? elements.documentPath.value.trim() : ""),
-      fileName: documentInfo.fileName || "",
-      kind: documentInfo.kind || "",
-      summary: documentInfo.summary || "",
-      text: trimContextText(state.documentText, 24000)
-    },
     result: {
       status: elements.resultStatus ? elements.resultStatus.textContent : "",
       text: trimContextText(resultText, 6000)
@@ -4030,13 +4482,9 @@ function buildEngineeringWorkspaceContext() {
   };
 }
 
-function shouldSkipReuseForPrompt(prompt, workspaceContext) {
-  return engineeringWorkspaceHasContent(workspaceContext) && ENGINEERING_PROMPT_PATTERN.test(String(prompt || ""));
-}
-
 async function runCodex(options = {}) {
   if (state.running) {
-    requestRunningSupplementRestart();
+    requestRunningPromptHandoff();
     return false;
   }
 
@@ -4057,39 +4505,42 @@ async function runCodex(options = {}) {
   localStorage.setItem(state.lastModeKey, state.mode);
   localStorage.setItem(state.lastAgentKey, state.agentProfile);
   localStorage.setItem(state.lastReasoningKey, state.reasoningEffort);
-  localStorage.setItem(state.lastReuseKey, elements.autoReuseToggle.checked ? "1" : "0");
-  localStorage.setItem(state.maintenanceContextKey, elements.maintenanceContextToggle.checked ? "1" : "0");
+  localStorage.setItem(state.autoApprovalKey, elements.autoApprovalToggle.checked ? "1" : "0");
+  localStorage.setItem(state.autoApprovalDelayKey, String(Math.max(3, Math.min(120, Number(elements.autoApprovalDelay.value || 10)))));
   localStorage.setItem(state.lastModelKey, elements.modelSelect.value);
   localStorage.setItem(state.customModelKey, elements.modelInput.value.trim());
   persistMcpSelection();
 
-  setStatus("正在检查历史");
-  const skipReuse = options.skipReuse || shouldSkipReuseForPrompt(prompt, workspaceContext);
-  const reusable = skipReuse ? null : await findExactReusable(prompt);
-  if (reusable) {
-    showHistoryRecord(reusable, true);
-    return false;
-  }
-
   const runOptions = selectedRunOptions({ prompt, workspaceContext, continueFromRecord });
+  const modelChoice = selectedModelChoice(runOptions.reasoningEffort);
   const mcpTools = selectedMcpTools();
   const payload = {
     workspace,
     pythonRoot: elements.plcPythonRoot ? elements.plcPythonRoot.value.trim() : "",
-    projectPath: elements.codesysProjectPath ? elements.codesysProjectPath.value.trim() : "",
+    projectDirectory: elements.codesysProjectDirectory ? elements.codesysProjectDirectory.value.trim() : "",
+    projectPath: selectedCodesysProjectPath(),
     workspaceContext,
     prompt,
     agentProfile: state.agentProfile,
-    model: selectedModelValue(),
-    webSearch: elements.webSearchToggle.checked,
-    ephemeral: elements.ephemeralToggle.checked,
-    maintenanceContext: elements.maintenanceContextToggle.checked,
+    model: modelChoice.model,
+    requestedModel: modelChoice.requestedModel,
+    modelMode: modelChoice.modelMode,
+    webSearch: true,
+    ephemeral: false,
+    maintenanceContext: true,
+    autoApprovalEnabled: elements.autoApprovalToggle.checked,
+    autoApprovalDelayMs: Math.max(3, Math.min(120, Number(elements.autoApprovalDelay.value || 10))) * 1000,
     mcpTools,
     continueFromId: continueFromRecord ? continueFromRecord.id : "",
     ...runOptions
   };
 
-  resetRunBuffers();
+  if (continueFromRecord) {
+    resetRunBuffers({ preserveResultLog: true });
+    prepareContinuationResultLog(continueFromRecord);
+  } else {
+    resetRunBuffers();
+  }
   state.currentRun = {
     prompt,
     workspace: payload.workspace,
@@ -4102,6 +4553,9 @@ async function runCodex(options = {}) {
     activeAgentProfile: "",
     agentLabel: AGENT_LABELS[state.agentProfile] || "自动总控",
     model: payload.model,
+    requestedModel: payload.requestedModel,
+    modelMode: payload.modelMode,
+    modelSource: payload.modelMode,
     provider: state.codexConfig,
     mcpTools,
     webSearch: payload.webSearch,
@@ -4116,13 +4570,28 @@ async function runCodex(options = {}) {
     lastHeartbeatAt: Date.now(),
     backendMissingSince: 0,
     clientAbortReason: "",
+    currentThoughtTitle: "正在启动 Codex",
+    currentThoughtDetail: "正在建立模型连接并准备工程上下文",
+    currentThoughtAt: Date.now(),
+    approvalAutoEnabled: payload.autoApprovalEnabled,
+    approvalDeadlineAt: 0,
     pid: null,
     serverIdleMs: 0,
     stallWarning: false,
+    selfChecking: false,
+    selfCheckMs: 0,
+    selfCheckCount: 0,
     stallWarningMs: 0,
     stallTimeoutMs: 0,
+    safeRestartMs: 0,
+    effectiveTimeoutMs: 0,
+    waitKind: "model",
+    waitLabel: "等待模型响应",
+    watchdogRecoveryCount: 0,
+    watchdogRecoveryLimit: 0,
     toolWaiting: false,
     toolIdleTimeoutMs: 0,
+    postToolIdleTimeoutMs: 0,
     resultReceived: false,
     turnCompleted: false,
     turnFailed: false,
@@ -4133,6 +4602,7 @@ async function runCodex(options = {}) {
   state.historySaving = false;
   state.saveHistoryPromise = null;
   state.startedAt = Date.now();
+  hideApprovalPrompt();
   setRunning(true);
   updateContinueRunButtonState();
   startTicker();
@@ -4149,8 +4619,8 @@ async function runCodex(options = {}) {
     });
     updateContinueContextText(continueFromRecord, prompt);
     appendReasoning("continue", "续问上下文", contextText, continueFromRecord, false);
-    appendResult("continue-context", "续问上下文", contextText, continueFromRecord, false);
-    elements.resultStatus.textContent = "已保留上一轮问题和回答";
+    appendResult("continue-question", "本次追问", prompt, null, false);
+    elements.resultStatus.textContent = "已保留历史模型回答，等待新回答";
   }
   if (state.currentRun.runningSupplements.length) {
     appendReasoning("supplement", "运行中补充已合并", state.currentRun.runningSupplements
@@ -4224,6 +4694,12 @@ async function runCodex(options = {}) {
           appendResult("error", "后台任务已结束或连接丢失", detail);
         }
         await saveHistoryRecord("failed");
+      } else if (isQueuedContinuationRequest()) {
+        recoverResultFromReasoningEvents();
+        setStatus("正在保存当前结果");
+        setThinking("正在保存当前结果", "连接已结束，保存完成后会继续下一轮追问", true);
+        const continuationStatus = state.currentRun && state.currentRun.turnFailed ? "failed" : "completed";
+        state.saveHistoryPromise = saveHistoryRecord(continuationStatus);
       } else if (state.runningSupplementRestart) {
         appendReasoning("supplement", "带补充重新推理", "已停止旧推理，正在用原问题和补充内容重新启动。", null, false);
         setStatus("正在带补充重新推理");
@@ -4258,22 +4734,39 @@ async function runCodex(options = {}) {
       savedRecord = await state.saveHistoryPromise.catch(() => null);
       state.saveHistoryPromise = null;
     }
-    const supplementRestart = state.runningSupplementRestart;
+    const restartRequest = state.runningSupplementRestart;
     state.runningSupplementRestart = null;
     state.controller = null;
     setRunning(false);
     updateContinueRunButtonState();
     stopTicker();
     stopRunReconcileTimer();
-    if (supplementRestart) {
-      if (supplementRestart.continueFromRecord) {
-        state.continueFromRecord = supplementRestart.continueFromRecord;
+    if (isQueuedContinuationRequest(restartRequest)) {
+      const continuationRecord = savedRecord || (state.historySaved ? state.lastSavedRecord : null);
+      if (continuationRecord && continuationRecord.id) {
+        setContinueContext(continuationRecord, { clearPrompt: false, focus: false });
+        runCodex({ promptOverride: restartRequest.prompt }).catch((error) => {
+          elements.promptInput.value = restartRequest.prompt;
+          appendReasoning("error", "续问启动失败", error.message);
+          setStatus("续问启动失败");
+          setThinking("续问启动失败", error.message, false);
+        });
+      } else {
+        elements.promptInput.value = restartRequest.prompt;
+        localStorage.setItem(state.lastPromptKey, restartRequest.prompt);
+        setStatus("当前结果保存失败，续问尚未启动");
+        setThinking("当前结果保存失败", "已保留追问输入，请先确认历史保存状态后重试", false, "warning");
+        elements.historyStatus.textContent = "未取得可续问的已保存记录";
+      }
+    } else if (restartRequest) {
+      if (restartRequest.continueFromRecord) {
+        state.continueFromRecord = restartRequest.continueFromRecord;
       }
       runCodex({
         skipReuse: true,
-        promptOverride: supplementRestart.prompt,
-        basePrompt: supplementRestart.basePrompt,
-        supplements: supplementRestart.supplements
+        promptOverride: restartRequest.prompt,
+        basePrompt: restartRequest.basePrompt,
+        supplements: restartRequest.supplements
       }).catch((error) => {
         appendReasoning("error", "补充重启失败", error.message);
         setStatus("补充重启失败");
@@ -4286,6 +4779,7 @@ async function runCodex(options = {}) {
 
 function stopCodex() {
   state.runningSupplementRestart = null;
+  hideApprovalPrompt();
   setStatus("正在停止");
   setThinking("正在停止", "正在终止当前 Codex 进程和它启动的工具进程", true);
   stopCurrentCodexRun();
@@ -4322,6 +4816,62 @@ async function stopCurrentCodexRun() {
   }, 2000);
 }
 
+async function approveCurrentRecovery() {
+  const runId = state.currentRun ? String(state.currentRun.runId || "") : "";
+  if (!runId) {
+    return;
+  }
+  elements.approveRecoveryButton.disabled = true;
+  setStatus("正在授权恢复");
+  setThinking("正在授权恢复", "正在终止等待进程，并以完全权限携带现场状态恢复一次", true, "warning");
+  try {
+    const response = await fetch("/api/run/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runId })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || "授权恢复失败");
+    }
+    hideApprovalPrompt();
+  } catch (error) {
+    elements.approveRecoveryButton.disabled = false;
+    setStatus("授权恢复失败");
+    setThinking("授权恢复失败", error.message, true, "warning");
+  }
+}
+
+async function syncApprovalPolicyForCurrentRun() {
+  const runId = state.currentRun ? String(state.currentRun.runId || "") : "";
+  if (!state.running || !runId) {
+    return;
+  }
+  const delayMs = Math.max(3, Math.min(120, Number(elements.autoApprovalDelay.value || 10))) * 1000;
+  try {
+    const response = await fetch("/api/run/approval-policy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        runId,
+        enabled: elements.autoApprovalToggle.checked,
+        delayMs
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || "授权策略更新失败");
+    }
+    if (state.currentRun) {
+      state.currentRun.approvalAutoEnabled = data.autoApprovalEnabled === true;
+      state.currentRun.approvalDeadlineAt = Number(data.deadlineAt || 0);
+    }
+    updateApprovalCountdown();
+  } catch (error) {
+    appendReasoning("warning", "授权策略更新失败", error.message);
+  }
+}
+
 async function loadDirectories(targetPath) {
   const response = await fetch(`/api/list?path=${encodeURIComponent(targetPath || elements.workspaceInput.value)}`);
   const data = await response.json();
@@ -4330,6 +4880,7 @@ async function loadDirectories(targetPath) {
   }
 
   elements.workspaceInput.value = data.path;
+  persistWorkspace();
   state.currentParent = data.parent;
   elements.directoryList.textContent = "";
 
@@ -4363,26 +4914,16 @@ async function loadStatus() {
   const lastMode = localStorage.getItem(state.lastModeKey);
   const lastAgent = localStorage.getItem(state.lastAgentKey);
   const lastReasoning = localStorage.getItem(state.lastReasoningKey);
-  const lastReuse = localStorage.getItem(state.lastReuseKey);
-  const maintenanceContext = localStorage.getItem(state.maintenanceContextKey);
+  const autoApproval = localStorage.getItem(state.autoApprovalKey);
+  const autoApprovalDelay = localStorage.getItem(state.autoApprovalDelayKey);
   const lastFavoriteOnly = localStorage.getItem(state.historyFavoriteOnlyKey);
-  const lastDocumentPath = localStorage.getItem(state.documentPathKey);
 
   elements.workspaceInput.value = lastWorkspace || data.defaultWorkspace;
   elements.promptInput.value = lastPrompt || "";
-  if (elements.documentPath) {
-    elements.documentPath.value = lastDocumentPath || "";
-  }
-  updateDocumentControls();
-  elements.autoReuseToggle.checked = lastReuse !== "0";
-  elements.maintenanceContextToggle.checked = maintenanceContext !== "0";
+  elements.autoApprovalToggle.checked = autoApproval !== "0";
+  elements.autoApprovalDelay.value = String(Math.max(3, Math.min(120, Number(autoApprovalDelay || 10))));
+  elements.autoApprovalDelay.disabled = !elements.autoApprovalToggle.checked;
   const maintenance = data.maintenance || {};
-  const maintenanceTile = elements.maintenanceContextToggle.closest(".check-tile");
-  if (maintenanceTile) {
-    maintenanceTile.title = maintenance.exists
-      ? `已载入维护记录: ${maintenance.sourceFile || maintenance.file}`
-      : `未找到维护记录: ${maintenance.file || ""}`;
-  }
   state.historyFavoriteOnly = lastFavoriteOnly === "1";
   renderFavoriteFilterState();
   if (RUN_MODES[lastMode]) {
@@ -4414,6 +4955,7 @@ async function loadStatus() {
   renderModelOptions({
     configuredModel: config.model || "",
     models: (config.modelHints || []).map((id) => ({ id, source: "config" })),
+    autoModelMap: data.autoModelMap || config.autoModelMap,
     source: "config"
   });
   refreshModelOptions().catch((error) => {
@@ -4431,7 +4973,7 @@ async function loadStatus() {
   await loadPythonStatus();
   elements.workspaceInput.value = deriveWorkspace() || lastWorkspace || data.defaultWorkspace;
   window.setTimeout(() => {
-    refreshHistory(elements.promptInput.value.trim()).catch(() => {});
+    refreshHistory().catch(() => {});
   }, 0);
 }
 
@@ -4458,7 +5000,7 @@ async function handleHistoryAction(event) {
         state.lastSavedRecord.favorite = nextFavorite;
       }
       elements.historyStatus.textContent = nextFavorite ? "已收藏" : "已取消收藏";
-      await refreshHistory(elements.promptInput.value.trim());
+      await refreshHistory();
       return;
     }
 
@@ -4484,7 +5026,6 @@ async function handleHistoryAction(event) {
         updateContinueRunButtonState();
       }
       state.history = state.history.filter((record) => record.id !== id);
-      state.historyMatches = state.historyMatches.filter((record) => record.id !== id);
       if (removedRecord) {
         state.historyTotalCount = Math.max(0, state.historyTotalCount - 1);
         if (removedRecord.favorite) {
@@ -4493,7 +5034,7 @@ async function handleHistoryAction(event) {
       }
       renderHistoryList();
       updateHistoryStatusText();
-      await refreshHistory(elements.promptInput.value.trim());
+      await refreshHistory();
       elements.historyStatus.textContent = Number(data.deleted || 0) > 0 ? "历史已删除" : "历史记录已不存在，列表已刷新";
       return;
     }
@@ -4504,23 +5045,16 @@ async function handleHistoryAction(event) {
       elements.promptInput.value = record.prompt || record.promptPreview || "";
       localStorage.setItem(state.lastPromptKey, elements.promptInput.value);
       setStatus("已填入历史指令");
-      scheduleHistoryLookup();
       return;
     }
 
     if (action === "continue") {
-      showHistoryRecord(record, false, { setPrompt: false });
+      showHistoryRecord(record, { setPrompt: false });
       setContinueContext(record);
       return;
     }
 
-    if (action === "use") {
-      clearContinueContext(false);
-      showHistoryRecord(record, true);
-      return;
-    }
-
-    showHistoryRecord(record, false, { setPrompt: false });
+    showHistoryRecord(record, { setPrompt: false });
   } catch (error) {
     elements.historyStatus.textContent = error.message;
   }
@@ -4556,7 +5090,7 @@ elements.agentSelect.addEventListener("change", () => {
 
 elements.continueRunButton.addEventListener("click", () => {
   if (state.running) {
-    requestRunningSupplementRestart();
+    requestRunningPromptHandoff();
     return;
   }
 
@@ -4589,6 +5123,8 @@ elements.continueRunButton.addEventListener("click", () => {
 });
 elements.runButton.addEventListener("click", runCodex);
 elements.stopButton.addEventListener("click", stopCodex);
+elements.approveRecoveryButton.addEventListener("click", approveCurrentRecovery);
+elements.approvalStopButton.addEventListener("click", stopCodex);
 elements.cancelContinueButton.addEventListener("click", () => clearContinueContext());
 elements.clearButton.addEventListener("click", () => {
   if (state.running) {
@@ -4596,7 +5132,6 @@ elements.clearButton.addEventListener("click", () => {
     localStorage.removeItem(state.lastPromptKey);
     setStatus("已清空输入框，当前任务仍在运行");
     elements.promptInput.focus();
-    scheduleHistoryLookup();
     return;
   }
 
@@ -4614,7 +5149,7 @@ elements.clearButton.addEventListener("click", () => {
   state.historySaved = false;
   state.historySaving = false;
   updateContinueRunButtonState();
-  refreshHistory("").catch(() => {});
+  refreshHistory().catch(() => {});
   elements.promptInput.focus();
 });
 elements.copyResultButton.addEventListener("click", async () => {
@@ -4648,27 +5183,6 @@ elements.favoriteHistoryToggle.addEventListener("click", () => {
 });
 elements.refreshMcpButton.addEventListener("click", () => {
   refreshMcpStatus().catch(() => {});
-});
-elements.layoutModeControl.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-layout-mode]");
-  if (!button) {
-    return;
-  }
-  applyLayoutMode(button.dataset.layoutMode);
-});
-elements.documentReadButton.addEventListener("click", () => {
-  readDocument();
-});
-elements.documentToPromptButton.addEventListener("click", () => {
-  appendDocumentToPrompt();
-});
-elements.documentPath.addEventListener("change", () => {
-  localStorage.setItem(state.documentPathKey, elements.documentPath.value.trim());
-});
-elements.documentPath.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    readDocument();
-  }
 });
 elements.codesysReadExportButton.addEventListener("click", () => {
   codesysReadExport();
@@ -4768,11 +5282,19 @@ elements.modelInput.addEventListener("input", () => {
   localStorage.setItem(state.customModelKey, elements.modelInput.value.trim());
 });
 elements.historyList.addEventListener("click", handleHistoryAction);
-elements.autoReuseToggle.addEventListener("change", () => {
-  localStorage.setItem(state.lastReuseKey, elements.autoReuseToggle.checked ? "1" : "0");
+elements.autoApprovalToggle.addEventListener("change", () => {
+  elements.autoApprovalDelay.disabled = !elements.autoApprovalToggle.checked;
+  localStorage.setItem(state.autoApprovalKey, elements.autoApprovalToggle.checked ? "1" : "0");
+  if (elements.autoApprovalToggle.checked && "Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+  syncApprovalPolicyForCurrentRun();
 });
-elements.maintenanceContextToggle.addEventListener("change", () => {
-  localStorage.setItem(state.maintenanceContextKey, elements.maintenanceContextToggle.checked ? "1" : "0");
+elements.autoApprovalDelay.addEventListener("change", () => {
+  const seconds = Math.max(3, Math.min(120, Number(elements.autoApprovalDelay.value || 10)));
+  elements.autoApprovalDelay.value = String(seconds);
+  localStorage.setItem(state.autoApprovalDelayKey, String(seconds));
+  syncApprovalPolicyForCurrentRun();
 });
 elements.codesysMcpToggle.addEventListener("change", () => {
   persistMcpSelection();
@@ -4782,14 +5304,23 @@ elements.autocadMcpToggle.addEventListener("change", () => {
   persistMcpSelection();
   applyMcpStatus(state.mcpStatus || { integrations: [] });
 });
-[elements.codesysProjectPath, elements.codesysExportPath, elements.codesysSaveAsPath].forEach((input) => {
-  input.addEventListener("change", () => {
-    persistCodesysPaths();
-    if (input === elements.codesysProjectPath) {
-      refreshCodesysProjectList({ silent: false }).catch(() => {});
-      elements.workspaceInput.value = deriveWorkspace() || elements.workspaceInput.value;
-    }
-  });
+[elements.codesysExportPath, elements.codesysSaveAsPath].forEach((input) => {
+  input.addEventListener("change", persistCodesysPaths);
+});
+elements.codesysProjectDirectory.addEventListener("change", () => {
+  const directoryKey = normalizeLocalPathForCompare(elements.codesysProjectDirectory.value).toLowerCase();
+  if (directoryKey === state.codesysProjectDirectorySubmitted) {
+    return;
+  }
+  refreshCodesysProjectDirectory().catch(() => {});
+  elements.workspaceInput.value = deriveWorkspace() || elements.workspaceInput.value;
+});
+elements.codesysProjectDirectory.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    refreshCodesysProjectDirectory().catch(() => {});
+    elements.workspaceInput.value = deriveWorkspace() || elements.workspaceInput.value;
+  }
 });
 [elements.codesysGitRoot, elements.codesysGitCommitMessage].forEach((input) => {
   input.addEventListener("change", persistCodesysPaths);
@@ -4816,16 +5347,17 @@ elements.workspaceInput.addEventListener("keydown", (event) => {
     loadDirectories(elements.workspaceInput.value).catch((error) => setStatus(error.message));
   }
 });
+elements.workspaceInput.addEventListener("change", persistWorkspace);
+window.addEventListener("pagehide", persistWorkspace);
 elements.promptInput.addEventListener("input", () => {
   if (state.continueFromRecord) {
     updateContinueContextText(state.continueFromRecord, elements.promptInput.value.trim());
   }
-  scheduleHistoryLookup();
 });
 elements.promptInput.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     if (state.running) {
-      requestRunningSupplementRestart();
+      requestRunningPromptHandoff();
       return;
     }
     runCodex();
@@ -4833,7 +5365,6 @@ elements.promptInput.addEventListener("keydown", (event) => {
 });
 
 initSectionCollapseButtons();
-initLayoutMode();
 updateContinueRunButtonState();
 initInputHeightPersistence();
 initPanelResizers();

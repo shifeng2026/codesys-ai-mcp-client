@@ -23,6 +23,9 @@ const LOGS_DIR = process.env.CODEX_CLIENT_LOG_DIR || (process.platform === "win3
 const HISTORY_MIRROR_FILE = process.env.CODEX_CLIENT_HISTORY_MIRROR || path.join(LOGS_DIR, "codex-local-client-history-current.json");
 const MAINTENANCE_LOG_FILE = process.env.CODEX_CLIENT_MAINTENANCE_LOG || path.join(__dirname, "maintenance-log-20260731-195311.md");
 const MAINTENANCE_LOG_MIRROR_FILE = process.env.CODEX_CLIENT_MAINTENANCE_LOG_MIRROR || path.join(LOGS_DIR, "codex-local-client-maintenance-20260731-195311.md");
+const ENGINEERING_MEMORY_FILE = process.env.CODEX_CLIENT_ENGINEERING_MEMORY || path.join(__dirname, "engineering-experience.md");
+const ENGINEERING_MEMORY_MIRROR_FILE = process.env.CODEX_CLIENT_ENGINEERING_MEMORY_MIRROR || path.join(LOGS_DIR, "codex-local-client-engineering-experience.md");
+const MAX_ENGINEERING_MEMORY_CONTEXT_BYTES = 32000;
 const CODEX_RUNTIME_HOME = process.env.CODEX_CLIENT_RUNTIME_CODEX_HOME || path.join(__dirname, ".codex-runtime");
 const PROVIDER_PROXY_PREFIX = "/codex-provider-proxy";
 const PROVIDER_PROXY_ENABLED = process.env.CODEX_CLIENT_PROVIDER_PROXY !== "0";
@@ -57,7 +60,6 @@ const CODEX_PROVIDER_RETRY_DELAY_MS = clampInteger(
   1800
 );
 const HISTORY_LIMIT = 300;
-const HISTORY_MATCH_LIMIT = 8;
 const MAX_HISTORY_TEXT_CHARS = 120000;
 const MAX_HISTORY_EVENTS = 240;
 const MAX_HISTORY_RAW_CHARS = 12000;
@@ -66,13 +68,70 @@ const MAX_CONTINUATION_CONTEXT_BYTES = 90000;
 const MAX_MAINTENANCE_CONTEXT_CHARS = 30000;
 const MAX_DOCUMENT_BYTES = 30 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT_CHARS = 120000;
+const AUTO_DOCUMENT_EXTENSIONS = new Set([
+  ".pdf",
+  ".docx",
+  ".docm",
+  ".xlsx",
+  ".xlsm",
+  ".txt",
+  ".md",
+  ".csv",
+  ".log"
+]);
+const AUTO_DOCUMENT_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+const AUTO_DOCUMENT_EXCLUDED_NAMES = new Set([
+  ".git",
+  ".hg",
+  ".svn",
+  ".codex",
+  ".codex-runtime",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".venv",
+  "venv",
+  "env",
+  "node_modules",
+  "build",
+  "dist",
+  "coverage"
+]);
+const AUTO_DOCUMENT_CACHE_DIR = process.env.CODEX_CLIENT_DOCUMENT_CACHE || path.join(os.tmpdir(), "codex-local-client-document-cache");
+const AUTO_DOCUMENT_MAX_FILES = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_MAX_FILES, 1, 120, 36);
+const AUTO_DOCUMENT_MAX_ENTRIES = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_MAX_ENTRIES, 200, 30000, 6000);
+const AUTO_DOCUMENT_MAX_DEPTH = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_MAX_DEPTH, 0, 20, 8);
+const AUTO_DOCUMENT_TEXT_CHARS = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_TEXT_CHARS, 8000, 120000, 72000);
+const AUTO_DOCUMENT_FILE_TEXT_CHARS = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_FILE_TEXT_CHARS, 2000, 60000, 24000);
+const AUTO_DOCUMENT_VISUAL_LIMIT = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_VISUAL_LIMIT, 1, 80, 24);
+const AUTO_DOCUMENT_RENDER_DPI = clampInteger(process.env.CODEX_CLIENT_DOCUMENT_RENDER_DPI, 96, 216, 144);
+const AUTO_DOCUMENT_CACHE_MAX_AGE_MS = clampInteger(
+  process.env.CODEX_CLIENT_DOCUMENT_CACHE_MAX_AGE_MS,
+  60 * 60 * 1000,
+  14 * 24 * 60 * 60 * 1000,
+  24 * 60 * 60 * 1000
+);
 const RECOMMENDED_MODEL_OPTIONS = [
   { id: "gpt-5.6-sol", label: "gpt-5.6-sol", source: "recommended", description: "旗舰编码与复杂任务" },
-  { id: "gpt-5.6", label: "gpt-5.6", source: "recommended", description: "GPT-5.6 默认别名" },
   { id: "gpt-5.6-terra", label: "gpt-5.6-terra", source: "recommended", description: "日常工程平衡模型" },
   { id: "gpt-5.6-luna", label: "gpt-5.6-luna", source: "recommended", description: "快速低成本模型" }
 ];
+const AUTO_MODEL_BY_REASONING = Object.freeze({
+  low: "gpt-5.6-luna",
+  medium: "gpt-5.6-terra",
+  high: "gpt-5.6-sol",
+  xhigh: "gpt-5.6-sol",
+  max: "gpt-5.6-sol",
+  ultra: "gpt-5.6-sol"
+});
 const MODEL_LIST_TIMEOUT_MS = 12000;
+const MODEL_CAPABILITY_CACHE_TTL_MS = clampInteger(
+  process.env.CODEX_CLIENT_MODEL_CAPABILITY_CACHE_TTL_MS,
+  60 * 1000,
+  24 * 60 * 60 * 1000,
+  15 * 60 * 1000
+);
 const CODESYS_DEFAULT_PROFILE = process.env.CODESYS_PROFILE || "CODESYS V3.5 SP20 Patch 4";
 const CODESYS_DEFAULT_TIMEOUT_SEC = 300;
 const CODESYS_DEFAULT_PROJECT = process.env.CODEX_CLIENT_CODESYS_PROJECT || path.join(os.homedir(), "codesys-plc-git", "projects", "FiveDofPlatform.project");
@@ -92,12 +151,38 @@ const PYTHON_COMMAND_TIMEOUT_MS = 60000;
 const PYTHON_COMMAND_OUTPUT_CHARS = 120000;
 const ACTIVE_LOCAL_PROCESSES = new Map();
 const ACTIVE_CODEX_RUNS = new Map();
+const BUNDLED_MODEL_CAPABILITY_CACHE = {
+  invocationKey: "",
+  expiresAt: 0,
+  models: new Map(),
+  error: ""
+};
+const PROVIDER_MODEL_CATALOG_CACHE = {
+  configKey: "",
+  known: false,
+  models: new Set()
+};
 const CODEX_HEARTBEAT_INTERVAL_MS = 3000;
+const CODEX_SELF_CHECK_MS = clampInteger(
+  process.env.CODEX_CLIENT_SELF_CHECK_MS,
+  10000,
+  10 * 60 * 1000,
+  60 * 1000
+);
 const CODEX_STALL_WARNING_MS = clampInteger(
   process.env.CODEX_CLIENT_STALL_WARNING_MS,
   10000,
   30 * 60 * 1000,
   90 * 1000
+);
+const CODEX_SAFE_RESTART_MS = Math.max(
+  CODEX_SELF_CHECK_MS + 30000,
+  clampInteger(
+    process.env.CODEX_CLIENT_SAFE_RESTART_MS,
+    30000,
+    30 * 60 * 1000,
+    2 * 60 * 1000
+  )
 );
 const CODEX_STALL_TIMEOUT_MS = Math.max(
   CODEX_STALL_WARNING_MS + 30000,
@@ -105,7 +190,7 @@ const CODEX_STALL_TIMEOUT_MS = Math.max(
     process.env.CODEX_CLIENT_STALL_TIMEOUT_MS,
     30000,
     2 * 60 * 60 * 1000,
-    8 * 60 * 1000
+    4 * 60 * 1000
   )
 );
 const CODEX_TOOL_IDLE_TIMEOUT_MS = clampInteger(
@@ -114,6 +199,19 @@ const CODEX_TOOL_IDLE_TIMEOUT_MS = clampInteger(
   2 * 60 * 60 * 1000,
   3 * 60 * 1000
 );
+const CODEX_POST_TOOL_IDLE_TIMEOUT_MS = clampInteger(
+  process.env.CODEX_CLIENT_POST_TOOL_IDLE_TIMEOUT_MS,
+  30000,
+  2 * 60 * 60 * 1000,
+  3 * 60 * 1000
+);
+const CODEX_WATCHDOG_RECOVERY_LIMIT = clampInteger(
+  process.env.CODEX_CLIENT_WATCHDOG_RECOVERY_LIMIT,
+  1,
+  4,
+  3
+);
+const CODEX_RECOVERY_KILL_GRACE_MS = 10000;
 const CODEX_COMPLETED_EXIT_GRACE_MS = clampInteger(
   process.env.CODEX_CLIENT_COMPLETED_EXIT_GRACE_MS,
   1000,
@@ -174,9 +272,10 @@ const MIME_TYPES = {
   ".ico": "image/x-icon"
 };
 
-const SANDBOX_VALUES = new Set(["read-only", "workspace-write"]);
+const SANDBOX_VALUES = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const APPROVAL_VALUES = new Set(["never", "on-request", "untrusted"]);
-const REASONING_VALUES = new Set(["default", "low", "medium", "high", "xhigh"]);
+const REASONING_VALUES = new Set(["default", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const MODEL_MODE_VALUES = new Set(["auto", "configured", "explicit", "custom"]);
 const MCP_NAMES = ["codesys", "autocad"];
 const MCP_NAME_SET = new Set(MCP_NAMES);
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/@+-]+$/;
@@ -195,7 +294,7 @@ const AGENT_PROFILE_DEFINITIONS = {
   },
   python_plc: {
     label: "Python-PLC控制",
-    description: "分析 Python 上位机控制代码、Modbus/485 调用、运行命令和异常输出。"
+    description: "设计和分析 PLC 上位机接口、Python 控制架构、Modbus/485 调用、运行命令和异常输出。"
   },
   register_map: {
     label: "寄存器映射",
@@ -357,60 +456,6 @@ function appendTailText(existing, next, maxChars = 12000) {
   return text.length <= maxChars ? text : text.slice(-maxChars);
 }
 
-function normalizePrompt(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^0-9a-z\u4e00-\u9fff]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function promptFeatureSet(normalizedPrompt) {
-  const tokens = normalizedPrompt.match(/[0-9a-z]+|[\u4e00-\u9fff]/g) || [];
-  const features = new Set();
-  for (const token of tokens) {
-    features.add(token);
-  }
-
-  const compact = tokens.join("");
-  if (compact.length === 1) {
-    features.add(compact);
-  }
-  for (let index = 0; index < compact.length - 1; index += 1) {
-    features.add(compact.slice(index, index + 2));
-  }
-  return features;
-}
-
-function promptSimilarity(leftPrompt, rightPrompt) {
-  const left = normalizePrompt(leftPrompt);
-  const right = normalizePrompt(rightPrompt);
-  if (!left || !right) {
-    return 0;
-  }
-  if (left === right) {
-    return 1;
-  }
-
-  const leftFeatures = promptFeatureSet(left);
-  const rightFeatures = promptFeatureSet(right);
-  if (!leftFeatures.size || !rightFeatures.size) {
-    return 0;
-  }
-
-  let intersection = 0;
-  for (const item of leftFeatures) {
-    if (rightFeatures.has(item)) {
-      intersection += 1;
-    }
-  }
-  const union = leftFeatures.size + rightFeatures.size - intersection;
-  const jaccard = union > 0 ? intersection / union : 0;
-  const shorter = Math.min(left.length, right.length);
-  const containment = shorter >= 10 && (left.includes(right) || right.includes(left)) ? 0.78 : 0;
-  return Math.max(jaccard, containment);
-}
-
 function readHistoryRecords() {
   const candidates = Array.from(new Set([HISTORY_FILE, HISTORY_MIRROR_FILE]));
   for (const filePath of candidates) {
@@ -510,6 +555,58 @@ function publicMaintenanceStatus(options = {}) {
   };
 }
 
+function readEngineeringMemory() {
+  const candidates = Array.from(new Set([ENGINEERING_MEMORY_FILE, ENGINEERING_MEMORY_MIRROR_FILE]));
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) {
+        continue;
+      }
+      return {
+        exists: true,
+        file: ENGINEERING_MEMORY_FILE,
+        mirrorFile: ENGINEERING_MEMORY_MIRROR_FILE,
+        sourceFile: filePath,
+        updatedAt: stats.mtime.toISOString(),
+        size: stats.size,
+        text: fs.readFileSync(filePath, "utf8")
+      };
+    } catch {
+      continue;
+    }
+  }
+  return {
+    exists: false,
+    file: ENGINEERING_MEMORY_FILE,
+    mirrorFile: ENGINEERING_MEMORY_MIRROR_FILE,
+    sourceFile: "",
+    updatedAt: "",
+    size: 0,
+    text: ""
+  };
+}
+
+function syncEngineeringMemoryMirror() {
+  try {
+    const memory = readEngineeringMemory();
+    if (!memory.exists) {
+      return;
+    }
+    if (!fs.existsSync(ENGINEERING_MEMORY_FILE)) {
+      fs.mkdirSync(path.dirname(ENGINEERING_MEMORY_FILE), { recursive: true });
+      fs.copyFileSync(memory.sourceFile, ENGINEERING_MEMORY_FILE);
+    }
+    fs.mkdirSync(path.dirname(ENGINEERING_MEMORY_MIRROR_FILE), { recursive: true });
+    fs.copyFileSync(ENGINEERING_MEMORY_FILE, ENGINEERING_MEMORY_MIRROR_FILE);
+  } catch {
+    // Engineering runs must not fail just because the external mirror is unavailable.
+  }
+}
+
 function compactRaw(raw) {
   if (raw == null) {
     return null;
@@ -557,6 +654,59 @@ function cleanHistoryId(value) {
   return /^[A-Za-z0-9-]{16,80}$/.test(id) ? id : "";
 }
 
+function normalizeModelMode(value, requestedModel = "") {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "default") {
+    return "configured";
+  }
+  if (mode === "manual") {
+    return requestedModel ? "explicit" : "configured";
+  }
+  if (MODEL_MODE_VALUES.has(mode)) {
+    return mode;
+  }
+  return requestedModel ? "explicit" : "configured";
+}
+
+function resolveRunModel(payload, providerConfig, reasoningEffort) {
+  const hasRequestedModel = Object.prototype.hasOwnProperty.call(payload, "requestedModel");
+  const modelHint = String(payload.model || "").trim();
+  const requestedModelInput = String(hasRequestedModel ? payload.requestedModel || "" : modelHint).trim();
+  const modelMode = normalizeModelMode(payload.modelMode, requestedModelInput);
+  const requestedModel = modelMode === "explicit" || modelMode === "custom" ? requestedModelInput : "";
+  let model = requestedModel;
+  const modelSource = modelMode;
+
+  if (modelMode === "auto") {
+    model = AUTO_MODEL_BY_REASONING[reasoningEffort] || AUTO_MODEL_BY_REASONING.medium;
+    if (knownProviderModelAvailability(providerConfig, model) === false) {
+      throw Object.assign(new Error(`当前 provider 模型目录中没有 ${model}，请刷新模型列表或切换模型`), { statusCode: 400 });
+    }
+    if (modelHint && modelHint.toLowerCase() !== model.toLowerCase()) {
+      throw Object.assign(new Error(`自动模型映射已变化：${reasoningEffort} 应使用 ${model}，请刷新模型列表后重试`), { statusCode: 400 });
+    }
+  } else if (modelMode === "configured") {
+    model = String(providerConfig.model || "").trim();
+  } else if (!requestedModel) {
+    throw Object.assign(new Error("显式模型模式缺少模型名称"), { statusCode: 400 });
+  }
+
+  if (!model) {
+    throw Object.assign(new Error("Codex 配置未指定可运行模型"), { statusCode: 400 });
+  }
+  if (!MODEL_ID_PATTERN.test(model)) {
+    throw Object.assign(new Error("模型名称包含不支持的字符"), { statusCode: 400 });
+  }
+  validateModelReasoningCompatibility(model, reasoningEffort);
+
+  return {
+    requestedModel,
+    modelMode,
+    modelSource,
+    model
+  };
+}
+
 function compactHistoryRecord(payload) {
   const prompt = trimText(payload.prompt || "", MAX_PROMPT_BYTES);
   if (!prompt.trim()) {
@@ -572,12 +722,16 @@ function compactHistoryRecord(payload) {
   const durationMs = Number.isFinite(Number(payload.durationMs))
     ? Math.max(0, Math.round(Number(payload.durationMs)))
     : 0;
+  const requestedModelValue = Object.prototype.hasOwnProperty.call(payload, "requestedModel")
+    ? payload.requestedModel
+    : payload.model;
+  const requestedModel = trimText(requestedModelValue || "", 120);
+  const modelMode = normalizeModelMode(payload.modelMode, requestedModel);
 
   return {
     id: cleanHistoryId(payload.id) || crypto.randomUUID(),
     createdAt,
     prompt,
-    promptKey: normalizePrompt(prompt),
     promptPreview: previewText(prompt, 180),
     parentHistoryId: cleanHistoryId(payload.parentHistoryId || payload.continueFromId),
     parentPromptPreview: previewText(payload.parentPromptPreview || "", 180),
@@ -592,6 +746,9 @@ function compactHistoryRecord(payload) {
     requestedReasoningEffort: trimText(payload.requestedReasoningEffort || payload.reasoningEffort || "default", 32),
     reasoningEffort: trimText(payload.reasoningEffort || "default", 32),
     model: trimText(payload.model || "", 120),
+    requestedModel,
+    modelMode,
+    modelSource: trimText(payload.modelSource || modelMode, 32),
     mcpTools: Array.isArray(payload.mcpTools)
       ? payload.mcpTools.map((name) => String(name || "")).filter((name) => MCP_NAME_SET.has(name))
       : [],
@@ -609,6 +766,10 @@ function compactHistoryRecord(payload) {
 }
 
 function publicHistoryRecord(record, options = {}) {
+  const requestedModel = Object.prototype.hasOwnProperty.call(record, "requestedModel")
+    ? record.requestedModel || ""
+    : record.model || "";
+  const modelMode = normalizeModelMode(record.modelMode, requestedModel);
   const result = {
     id: record.id,
     createdAt: record.createdAt,
@@ -627,14 +788,16 @@ function publicHistoryRecord(record, options = {}) {
     requestedReasoningEffort: record.requestedReasoningEffort || record.reasoningEffort || "default",
     reasoningEffort: record.reasoningEffort,
     model: record.model,
+    requestedModel,
+    modelMode,
+    modelSource: record.modelSource || modelMode,
     mcpTools: Array.isArray(record.mcpTools) ? record.mcpTools : [],
     status: record.status,
     durationMs: record.durationMs,
     favorite: record.favorite === true,
     favoriteAt: record.favoriteAt || "",
     reasoningPreview: previewText(record.reasoningText, 220),
-    resultPreview: previewText(record.resultText, 320),
-    score: options.score == null ? undefined : Number(options.score.toFixed(3))
+    resultPreview: previewText(record.resultText, 320)
   };
 
   if (options.details) {
@@ -645,27 +808,6 @@ function publicHistoryRecord(record, options = {}) {
   }
 
   return result;
-}
-
-function findHistoryMatches(records, prompt) {
-  const query = normalizePrompt(prompt);
-  if (!query) {
-    return [];
-  }
-
-  return records
-    .map((record) => {
-      const score = promptSimilarity(query, record.promptKey || record.prompt || "");
-      return { record, score };
-    })
-    .filter((item) => item.score >= 0.42)
-    .sort((a, b) => {
-      if (b.score !== a.score) {
-        return b.score - a.score;
-      }
-      return String(b.record.createdAt || "").localeCompare(String(a.record.createdAt || ""));
-    })
-    .slice(0, HISTORY_MATCH_LIMIT);
 }
 
 function resolveDirectory(inputPath) {
@@ -707,11 +849,17 @@ function normalizeRunWorkspace(resolvedPath) {
 }
 
 function resolveRunWorkspace(payload = {}) {
-  const projectPath = String(payload.projectPath || "").trim();
+  const context = payload.workspaceContext && typeof payload.workspaceContext === "object"
+    ? payload.workspaceContext
+    : {};
+  const codesys = context.codesys && typeof context.codesys === "object" ? context.codesys : {};
+  const projectDirectory = String(payload.projectDirectory || codesys.projectDirectory || "").trim();
+  const projectPath = String(payload.projectPath || codesys.projectPath || "").trim();
   const candidates = [
     payload.workspace,
     payload.pythonRoot,
     payload.gitRoot,
+    projectDirectory,
     projectPath ? path.dirname(path.resolve(projectPath)) : "",
     DEFAULT_WORKSPACE
   ];
@@ -754,6 +902,7 @@ function resolveExtraWritableDirs(payload = {}, workspace) {
   const python = context.python && typeof context.python === "object" ? context.python : {};
   const plc = context.plc && typeof context.plc === "object" ? context.plc : {};
   const git = context.git && typeof context.git === "object" ? context.git : {};
+  const projectDirectory = String(codesys.projectDirectory || payload.projectDirectory || "").trim();
   const projectPath = String(codesys.projectPath || payload.projectPath || "").trim();
   const scriptPath = String(python.script || plc.pythonScript || payload.pythonScript || "").trim();
   const result = [];
@@ -768,6 +917,7 @@ function resolveExtraWritableDirs(payload = {}, workspace) {
     git.codesysRoot,
     CODESYS_DEFAULT_GIT_ROOT,
     PYTHON_DEFAULT_GIT_ROOT,
+    projectDirectory,
     projectPath ? path.dirname(path.resolve(projectPath)) : "",
     scriptPath ? path.dirname(path.resolve(scriptPath)) : ""
   ].forEach((candidate) => pushExtraWritableDir(result, seen, workspace, candidate));
@@ -831,6 +981,107 @@ function getCodexStatus() {
     version: (result.stdout || result.stderr || "").trim(),
     error: result.error ? result.error.message : null
   };
+}
+
+function bundledModelCapabilityInvocationKey(invocation) {
+  return JSON.stringify([invocation.command, ...(invocation.baseArgs || [])]);
+}
+
+function parseBundledModelCatalog(text) {
+  const candidates = [String(text || "").trim(), ...String(text || "").split(/\r?\n/).reverse()]
+    .map((item) => item.trim())
+    .filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && Array.isArray(parsed.models)) {
+        return parsed.models;
+      }
+    } catch {}
+  }
+  throw new Error("Codex bundled 模型目录不是有效 JSON");
+}
+
+function getBundledModelCapabilityCatalog() {
+  const invocation = getCodexInvocation();
+  const invocationKey = bundledModelCapabilityInvocationKey(invocation);
+  const now = Date.now();
+  if (
+    BUNDLED_MODEL_CAPABILITY_CACHE.invocationKey === invocationKey &&
+    BUNDLED_MODEL_CAPABILITY_CACHE.expiresAt > now
+  ) {
+    return BUNDLED_MODEL_CAPABILITY_CACHE;
+  }
+
+  const result = spawnSync(invocation.command, [...invocation.baseArgs, "debug", "models", "--bundled"], {
+    encoding: "utf8",
+    timeout: MODEL_LIST_TIMEOUT_MS,
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+    env: getCodexChildEnv()
+  });
+  const models = new Map();
+  let error = "";
+  try {
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      throw new Error(trimText(`${result.stderr || ""}\n${result.stdout || ""}`.trim(), 500) || `Codex 退出状态 ${result.status}`);
+    }
+    for (const item of parseBundledModelCatalog(result.stdout || result.stderr || "")) {
+      const id = String(item && (item.slug || item.id || item.model) || "").trim();
+      if (!id || !MODEL_ID_PATTERN.test(id)) {
+        continue;
+      }
+      const supportedReasoningEfforts = Array.from(new Set((Array.isArray(item.supported_reasoning_levels)
+        ? item.supported_reasoning_levels
+        : [])
+        .map((level) => String(level && typeof level === "object" ? level.effort || "" : level || "").trim())
+        .filter((effort) => effort !== "default" && REASONING_VALUES.has(effort))));
+      if (!supportedReasoningEfforts.length) {
+        continue;
+      }
+      models.set(id.toLowerCase(), {
+        id,
+        defaultReasoningEffort: REASONING_VALUES.has(item.default_reasoning_level)
+          ? item.default_reasoning_level
+          : "",
+        supportedReasoningEfforts
+      });
+    }
+    if (!models.size) {
+      throw new Error("Codex bundled 模型目录为空");
+    }
+  } catch (catalogError) {
+    error = catalogError.message || String(catalogError);
+    models.clear();
+  }
+
+  BUNDLED_MODEL_CAPABILITY_CACHE.invocationKey = invocationKey;
+  BUNDLED_MODEL_CAPABILITY_CACHE.expiresAt = now + (error ? Math.min(MODEL_CAPABILITY_CACHE_TTL_MS, 60 * 1000) : MODEL_CAPABILITY_CACHE_TTL_MS);
+  BUNDLED_MODEL_CAPABILITY_CACHE.models = models;
+  BUNDLED_MODEL_CAPABILITY_CACHE.error = error;
+  return BUNDLED_MODEL_CAPABILITY_CACHE;
+}
+
+function bundledModelCapability(model, catalog = getBundledModelCapabilityCatalog()) {
+  const key = String(model || "").trim().toLowerCase();
+  return key && catalog && catalog.models instanceof Map ? catalog.models.get(key) || null : null;
+}
+
+function validateModelReasoningCompatibility(model, reasoningEffort) {
+  if (!reasoningEffort || reasoningEffort === "default") {
+    return;
+  }
+  const capability = bundledModelCapability(model);
+  if (capability && !capability.supportedReasoningEfforts.includes(reasoningEffort)) {
+    const supported = capability.supportedReasoningEfforts.join("、") || "未声明";
+    throw Object.assign(new Error(`${model} 不支持 ${reasoningEffort} 推理强度；本机 Codex 支持档位：${supported}`), { statusCode: 400 });
+  }
+  if (!capability && String(model || "").trim().toLowerCase() === "gpt-5.6-luna" && reasoningEffort === "ultra") {
+    throw Object.assign(new Error("gpt-5.6-luna 不支持 ultra 推理强度，请改用 gpt-5.6-sol 或 gpt-5.6-terra"), { statusCode: 400 });
+  }
 }
 
 function pathExists(filePath) {
@@ -1077,6 +1328,7 @@ function getCodexConfigSummary() {
       exists: false,
       modelProvider: "",
       model: "",
+      modelReasoningEffort: "",
       baseUrl: "",
       wireApi: "",
       supportsWebsockets: null,
@@ -1096,6 +1348,7 @@ function getCodexConfigSummary() {
     exists: true,
     modelProvider,
     model: extractTomlString(text, "model"),
+    modelReasoningEffort: extractTomlString(text, "model_reasoning_effort"),
     baseUrl: extractTomlString(providerSection || text, "base_url"),
     wireApi: extractTomlString(providerSection || text, "wire_api"),
     supportsWebsockets: extractTomlBoolean(providerSection || text, "supports_websockets"),
@@ -1176,7 +1429,7 @@ function normalizeProviderModel(item) {
   return String(item.id || item.model || item.name || "").trim();
 }
 
-function mergeModelOptions(configuredModel, hints, providerModels) {
+function mergeModelOptions(configuredModel, hints, providerModels, options = {}) {
   const models = [];
   const seen = new Set();
 
@@ -1206,9 +1459,13 @@ function mergeModelOptions(configuredModel, hints, providerModels) {
     });
   }
 
-  add(configuredModel, "configured");
-  for (const recommended of RECOMMENDED_MODEL_OPTIONS) {
-    add(recommended, recommended.source || "recommended", recommended.description || "");
+  if (options.includeConfigured !== false) {
+    add(configuredModel, "configured");
+  }
+  if (options.includeRecommended !== false) {
+    for (const recommended of RECOMMENDED_MODEL_OPTIONS) {
+      add(recommended, recommended.source || "recommended", recommended.description || "");
+    }
   }
   for (const hint of hints || []) {
     add(hint, "config");
@@ -1231,6 +1488,43 @@ function mergeModelOptions(configuredModel, hints, providerModels) {
       return 1;
     }
     return left.id.localeCompare(right.id, "en");
+  });
+}
+
+function providerModelCatalogConfigKey(config) {
+  return JSON.stringify([
+    String(config && config.modelProvider || "").trim().toLowerCase(),
+    String(config && config.baseUrl || "").trim().replace(/\/+$/, "").toLowerCase()
+  ]);
+}
+
+function rememberProviderModelCatalog(config, providerResult) {
+  PROVIDER_MODEL_CATALOG_CACHE.configKey = providerModelCatalogConfigKey(config);
+  PROVIDER_MODEL_CATALOG_CACHE.known = !providerResult.error;
+  PROVIDER_MODEL_CATALOG_CACHE.models = new Set((providerResult.models || [])
+    .map((model) => normalizeProviderModel(model).toLowerCase())
+    .filter(Boolean));
+}
+
+function knownProviderModelAvailability(config, model) {
+  if (
+    !PROVIDER_MODEL_CATALOG_CACHE.known ||
+    PROVIDER_MODEL_CATALOG_CACHE.configKey !== providerModelCatalogConfigKey(config)
+  ) {
+    return null;
+  }
+  return PROVIDER_MODEL_CATALOG_CACHE.models.has(String(model || "").trim().toLowerCase());
+}
+
+function attachModelReasoningCapabilities(models, catalog) {
+  return (models || []).map((model) => {
+    const capability = bundledModelCapability(model.id, catalog);
+    return {
+      ...model,
+      supportedReasoningEfforts: capability ? capability.supportedReasoningEfforts.slice() : [],
+      defaultReasoningEffort: capability ? capability.defaultReasoningEffort : "",
+      reasoningCapabilitiesKnown: Boolean(capability)
+    };
   });
 }
 
@@ -1310,14 +1604,33 @@ function resolveDocumentPath(filePath, workspace = DEFAULT_WORKSPACE) {
   return resolved;
 }
 
-function runDocumentReader(filePath, maxChars = MAX_DOCUMENT_TEXT_CHARS) {
+function runDocumentReader(filePath, maxChars = MAX_DOCUMENT_TEXT_CHARS, options = {}) {
   const scriptPath = path.join(__dirname, "tools", "document_reader.py");
   if (!pathExists(scriptPath)) {
     throw httpError(`文档读取脚本不存在: ${scriptPath}`, 500);
   }
-  const result = spawnSync("python", [scriptPath, "--max-chars", String(maxChars), filePath], {
+  const args = [scriptPath, "--max-chars", String(maxChars)];
+  const visualDir = String(options.visualDir || "").trim();
+  const maxVisualPages = clampInteger(options.maxVisualPages, 0, AUTO_DOCUMENT_VISUAL_LIMIT, 0);
+  if (visualDir && maxVisualPages > 0) {
+    args.push(
+      "--visual-dir",
+      visualDir,
+      "--max-visual-pages",
+      String(maxVisualPages),
+      "--render-dpi",
+      String(AUTO_DOCUMENT_RENDER_DPI)
+    );
+  }
+  args.push(filePath);
+  const result = spawnSync("python", args, {
     encoding: "utf8",
-    maxBuffer: 12 * 1024 * 1024
+    maxBuffer: 12 * 1024 * 1024,
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: "utf-8",
+      PYTHONUTF8: "1"
+    }
   });
   const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
   if (result.error) {
@@ -1349,21 +1662,427 @@ async function handleDocumentRead(req, res) {
     text: trimText(preview.text || "", MAX_DOCUMENT_TEXT_CHARS)
   });
 }
+
+function buildAutoModelMap(modelValues) {
+  const available = new Map();
+  for (const value of modelValues || []) {
+    const id = normalizeProviderModel(value);
+    if (id) {
+      available.set(id.toLowerCase(), id);
+    }
+  }
+  return Object.fromEntries(Object.entries(AUTO_MODEL_BY_REASONING).map(([effort, desiredModel]) => [
+    effort,
+    available.get(desiredModel.toLowerCase()) || ""
+  ]));
+}
+
+function automaticDocumentPriority(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".pdf") {
+    return 0;
+  }
+  if (AUTO_DOCUMENT_IMAGE_EXTENSIONS.has(extension)) {
+    return 1;
+  }
+  if ([".docx", ".docm", ".xlsx", ".xlsm"].includes(extension)) {
+    return 2;
+  }
+  return 3;
+}
+
+function discoverAutomaticDocuments(workspace) {
+  const candidates = [];
+  const stack = [{ dir: path.resolve(workspace), depth: 0 }];
+  const candidateLimit = AUTO_DOCUMENT_MAX_FILES * 4;
+  const internalContextFiles = new Set([
+    path.resolve(MAINTENANCE_LOG_FILE).toLowerCase(),
+    path.resolve(ENGINEERING_MEMORY_FILE).toLowerCase(),
+    path.resolve(HISTORY_FILE).toLowerCase()
+  ]);
+  let scannedEntries = 0;
+
+  while (
+    stack.length &&
+    candidates.length < candidateLimit &&
+    scannedEntries < AUTO_DOCUMENT_MAX_ENTRIES
+  ) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
+    for (const entry of entries) {
+      scannedEntries += 1;
+      if (scannedEntries > AUTO_DOCUMENT_MAX_ENTRIES) {
+        break;
+      }
+      if (entry.isSymbolicLink() || entry.name.startsWith("~$")) {
+        continue;
+      }
+      const entryPath = path.join(current.dir, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          current.depth < AUTO_DOCUMENT_MAX_DEPTH &&
+          !AUTO_DOCUMENT_EXCLUDED_NAMES.has(entry.name.toLowerCase())
+        ) {
+          stack.push({ dir: entryPath, depth: current.depth + 1 });
+        }
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const extension = path.extname(entry.name).toLowerCase();
+      if (!AUTO_DOCUMENT_EXTENSIONS.has(extension) && !AUTO_DOCUMENT_IMAGE_EXTENSIONS.has(extension)) {
+        continue;
+      }
+      if (internalContextFiles.has(path.resolve(entryPath).toLowerCase())) {
+        continue;
+      }
+      try {
+        const stats = fs.statSync(entryPath);
+        candidates.push({
+          filePath: path.resolve(entryPath),
+          relativePath: path.relative(workspace, entryPath) || entry.name,
+          extension,
+          size: stats.size,
+          mtimeMs: stats.mtimeMs
+        });
+      } catch {
+        continue;
+      }
+      if (candidates.length >= candidateLimit) {
+        break;
+      }
+    }
+  }
+
+  candidates.sort((left, right) => {
+    return (
+      automaticDocumentPriority(left.filePath) - automaticDocumentPriority(right.filePath) ||
+      left.relativePath.localeCompare(right.relativePath, "zh-Hans-CN")
+    );
+  });
+  return {
+    files: candidates.slice(0, AUTO_DOCUMENT_MAX_FILES),
+    discoveredCount: candidates.length,
+    scannedEntries,
+    truncated:
+      candidates.length > AUTO_DOCUMENT_MAX_FILES ||
+      candidates.length >= candidateLimit ||
+      scannedEntries >= AUTO_DOCUMENT_MAX_ENTRIES
+  };
+}
+
+function automaticDocumentCacheDir(record) {
+  const cacheKey = crypto
+    .createHash("sha256")
+    .update([record.filePath.toLowerCase(), record.size, Math.floor(record.mtimeMs)].join("|"))
+    .digest("hex")
+    .slice(0, 24);
+  return path.join(AUTO_DOCUMENT_CACHE_DIR, cacheKey);
+}
+
+function pruneAutomaticDocumentCache() {
+  if (!pathExists(AUTO_DOCUMENT_CACHE_DIR)) {
+    return;
+  }
+  const cacheRoot = path.resolve(AUTO_DOCUMENT_CACHE_DIR);
+  const now = Date.now();
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const target = path.resolve(cacheRoot, entry.name);
+    if (path.dirname(target).toLowerCase() !== cacheRoot.toLowerCase()) {
+      continue;
+    }
+    try {
+      const stats = fs.statSync(target);
+      if (now - stats.mtimeMs > AUTO_DOCUMENT_CACHE_MAX_AGE_MS) {
+        fs.rmSync(target, { recursive: true, force: true });
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
+function automaticDocumentVisualItems(preview) {
+  const metadata = preview && preview.metadata && typeof preview.metadata === "object"
+    ? preview.metadata
+    : {};
+  const rawItems = [
+    ...(Array.isArray(metadata.visualPages) ? metadata.visualPages : []),
+    ...(Array.isArray(metadata.visualAssets) ? metadata.visualAssets : [])
+  ];
+  const seen = new Set();
+  const items = [];
+  for (const item of rawItems) {
+    const filePath = path.resolve(String(item && item.filePath ? item.filePath : ""));
+    const key = filePath.toLowerCase();
+    if (
+      !filePath ||
+      seen.has(key) ||
+      !AUTO_DOCUMENT_IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase()) ||
+      !pathExists(filePath)
+    ) {
+      continue;
+    }
+    seen.add(key);
+    items.push({
+      filePath,
+      page: Number.isFinite(Number(item.page)) ? Number(item.page) : null,
+      source: String(item.source || "")
+    });
+  }
+  return items;
+}
+
+function collectAutomaticDocumentContext(workspace) {
+  const discovery = discoverAutomaticDocuments(workspace);
+  const context = {
+    enabled: true,
+    workspace,
+    discoveredCount: discovery.discoveredCount,
+    scannedEntries: discovery.scannedEntries,
+    truncated: discovery.truncated,
+    indexedCount: 0,
+    skippedCount: 0,
+    files: [],
+    visualAttachments: [],
+    errors: []
+  };
+  if (!discovery.files.length) {
+    return context;
+  }
+
+  try {
+    fs.mkdirSync(AUTO_DOCUMENT_CACHE_DIR, { recursive: true });
+    pruneAutomaticDocumentCache();
+  } catch {
+    // Text indexing remains useful even when the visual cache is unavailable.
+  }
+
+  let remainingTextChars = AUTO_DOCUMENT_TEXT_CHARS;
+  let remainingVisuals = AUTO_DOCUMENT_VISUAL_LIMIT;
+  for (const record of discovery.files) {
+    const entry = {
+      filePath: record.filePath,
+      relativePath: record.relativePath,
+      extension: record.extension,
+      size: record.size,
+      kind: AUTO_DOCUMENT_IMAGE_EXTENSIONS.has(record.extension) ? "image" : "document",
+      summary: "",
+      text: "",
+      visualAttachments: [],
+      visualLimited: false
+    };
+
+    if (record.size > MAX_DOCUMENT_BYTES) {
+      entry.summary = "文件超过自动读取大小上限，保留原始路径供智能体按需检查";
+      context.skippedCount += 1;
+      context.files.push(entry);
+      continue;
+    }
+
+    if (AUTO_DOCUMENT_IMAGE_EXTENSIONS.has(record.extension)) {
+      entry.summary = "工作目录原始图片";
+      if (remainingVisuals > 0) {
+        const attachment = {
+          filePath: record.filePath,
+          sourcePath: record.filePath,
+          relativePath: record.relativePath,
+          page: null,
+          source: "original-image"
+        };
+        entry.visualAttachments.push(attachment);
+        context.visualAttachments.push(attachment);
+        remainingVisuals -= 1;
+      } else {
+        entry.visualLimited = true;
+      }
+      context.indexedCount += 1;
+      context.files.push(entry);
+      continue;
+    }
+
+    if ([".txt", ".md", ".csv", ".log"].includes(record.extension)) {
+      try {
+        const text = fs.readFileSync(record.filePath, "utf8");
+        entry.kind = "text";
+        entry.summary = "工作目录文本文件";
+        if (remainingTextChars > 0) {
+          entry.text = trimText(text, Math.min(AUTO_DOCUMENT_FILE_TEXT_CHARS, remainingTextChars));
+          remainingTextChars = Math.max(0, remainingTextChars - entry.text.length);
+        }
+        context.indexedCount += 1;
+      } catch (error) {
+        entry.summary = "自动读取失败，保留原始路径供智能体直接检查";
+        context.errors.push({
+          relativePath: record.relativePath,
+          error: error.message || String(error)
+        });
+        context.skippedCount += 1;
+      }
+      context.files.push(entry);
+      continue;
+    }
+
+    try {
+      const preview = runDocumentReader(
+        record.filePath,
+        Math.max(1, Math.min(AUTO_DOCUMENT_FILE_TEXT_CHARS, remainingTextChars || 1)),
+        {
+          visualDir: remainingVisuals > 0 ? automaticDocumentCacheDir(record) : "",
+          maxVisualPages: remainingVisuals
+        }
+      );
+      entry.kind = preview.kind || "document";
+      entry.summary = String(preview.summary || "");
+      if (remainingTextChars > 0) {
+        entry.text = trimText(preview.text || "", remainingTextChars);
+        remainingTextChars = Math.max(0, remainingTextChars - entry.text.length);
+      }
+      const visualItems = automaticDocumentVisualItems(preview).slice(0, remainingVisuals);
+      for (const item of visualItems) {
+        const attachment = {
+          ...item,
+          sourcePath: record.filePath,
+          relativePath: record.relativePath
+        };
+        entry.visualAttachments.push(attachment);
+        context.visualAttachments.push(attachment);
+      }
+      remainingVisuals = Math.max(0, remainingVisuals - visualItems.length);
+      const metadata = preview.metadata && typeof preview.metadata === "object" ? preview.metadata : {};
+      entry.visualLimited = metadata.visualPagesLimited === true;
+      if (metadata.visualError) {
+        context.errors.push({
+          relativePath: record.relativePath,
+          error: String(metadata.visualError)
+        });
+      }
+      context.indexedCount += 1;
+    } catch (error) {
+      entry.summary = "自动读取失败，保留原始路径供智能体直接检查";
+      context.errors.push({
+        relativePath: record.relativePath,
+        error: error.message || String(error)
+      });
+      context.skippedCount += 1;
+    }
+    context.files.push(entry);
+  }
+  return context;
+}
+
+function automaticDocumentPromptPrefix(context) {
+  if (!context || !Array.isArray(context.files) || !context.files.length) {
+    return "";
+  }
+  const lines = [
+    "客户端后台文档阅读固定开启，已自动检索当前工作目录；不要要求用户再次手动选择这些文件。",
+    "文本抽取只用于检索。不得把 PDF 文本层或 Word/Excel 内部 XML 当成完整原件；流程图、接线图、版面、表格关系和扫描页必须结合视觉附件或原始文件核对。",
+    "下面每条都保留原始绝对路径。视觉附件已通过 Codex 原生图片输入提供，并标注对应原文件和 PDF 页码。",
+    "若视觉页因数量上限未预载，必须根据问题用原始路径和本机 PDF 渲染工具按需检查相关页，不能据纯文本猜测图形关系。",
+    "",
+    "[自动发现的工作目录文档]"
+  ];
+
+  for (const file of context.files) {
+    const visuals = file.visualAttachments.map((item) => {
+      return item.page ? "PDF 第 " + item.page + " 页" : (item.source || "原始图片");
+    });
+    lines.push(
+      "- " + file.relativePath +
+      " | 原始路径: " + file.filePath +
+      " | " + (file.summary || file.kind) +
+      (visuals.length ? " | 视觉附件: " + visuals.join("、") : "") +
+      (file.visualLimited ? " | 仍有视觉内容需按需检查" : "")
+    );
+  }
+
+  const textFiles = context.files.filter((file) => String(file.text || "").trim());
+  if (textFiles.length) {
+    lines.push("", "[文档可检索文本层]");
+    for (const file of textFiles) {
+      lines.push("", "【" + file.relativePath + "】", file.text);
+    }
+  }
+  if (context.errors.length) {
+    lines.push("", "[自动读取提示]");
+    for (const item of context.errors) {
+      lines.push("- " + item.relativePath + ": " + item.error);
+    }
+  }
+  return trimTextUtf8(lines.join("\n"), 120000) + "\n\n";
+}
+
+function publicAutomaticDocumentContext(context) {
+  return {
+    enabled: true,
+    discoveredCount: context.discoveredCount,
+    indexedCount: context.indexedCount,
+    skippedCount: context.skippedCount,
+    visualAttachmentCount: context.visualAttachments.length,
+    truncated: context.truncated,
+    errors: context.errors.slice(0, 12),
+    files: context.files.map((file) => ({
+      relativePath: file.relativePath,
+      kind: file.kind,
+      summary: file.summary,
+      visualAttachmentCount: file.visualAttachments.length,
+      visualLimited: file.visualLimited
+    }))
+  };
+}
+
 async function handleModels(_req, res) {
   const config = getCodexConfigSummary();
   const providerResult = await requestProviderModels(config);
-  const models = mergeModelOptions(config.model, config.modelHints, providerResult.models);
+  rememberProviderModelCatalog(config, providerResult);
+  const providerAvailable = !providerResult.error;
+  const fallbackModels = mergeModelOptions(config.model, config.modelHints, []);
+  const mergedModels = providerAvailable
+    ? mergeModelOptions("", [], providerResult.models, {
+        includeConfigured: false,
+        includeRecommended: false
+      })
+    : fallbackModels;
+  const capabilityCatalog = getBundledModelCapabilityCatalog();
+  const models = attachModelReasoningCapabilities(mergedModels, capabilityCatalog);
+  const autoModelValues = providerAvailable ? providerResult.models : fallbackModels;
+  const autoModelMap = buildAutoModelMap(autoModelValues);
   const configuredModelKey = String(config.model || "").trim().toLowerCase();
   const providerModelKeys = new Set(providerResult.models.map((model) => String(model || "").trim().toLowerCase()));
   sendJson(res, 200, {
     provider: config.modelProvider,
     configuredModel: config.model,
-    configuredModelAvailable: configuredModelKey ? providerModelKeys.has(configuredModelKey) : true,
+    configuredReasoningEffort: config.modelReasoningEffort || "default",
+    configuredModelAvailable: providerAvailable && configuredModelKey ? providerModelKeys.has(configuredModelKey) : true,
     baseUrl: config.baseUrl,
     models,
-    source: providerResult.models.length ? "provider" : "config",
+    autoModelMap,
+    source: providerAvailable ? "provider" : "config",
     error: providerResult.error || null,
-    modelsUrl: providerResult.url
+    modelsUrl: providerResult.url,
+    reasoningCapabilities: {
+      source: "codex-bundled",
+      available: !capabilityCatalog.error,
+      modelCount: capabilityCatalog.models.size,
+      error: capabilityCatalog.error || null
+    }
   });
 }
 
@@ -1615,6 +2334,8 @@ function agentPromptPrefix(profile, requestedProfile) {
     `本次运行启用工程智能体: ${definition.label}${profile !== requestedProfile ? `（由 ${requested.label} 自动选择）` : ""}。`,
     `智能体目标: ${definition.description}`,
     "通用工作方式：先读当前客户端提供的工程上下文，再按需要读取磁盘真实文件；先定位证据，再修改；一次只改变必要变量，避免靠反复试错推进。",
+    "电气工程师思维：先确认电源、通讯、控制链、联锁/限位、执行器和反馈状态，再沿用户指令 -> 上位机 -> 通讯 -> PLC逻辑 -> IO/驱动 -> 机械负载逐层定位；明确区分事实、假设、验证结果和现场风险。",
+    "主动执行原则：只要能在用户目标范围内通过本地工具检查、修改和验证，就直接推进到结果，不停留在建议或等待用户重复催促；遇到失败先读取现场状态，再换一种方法继续。",
     "默认安全边界：不要下载、启动、停止、复位 PLC；不要执行会写现场寄存器或动作输出的命令，除非用户明确要求并且你先说明风险。"
   ];
 
@@ -1639,8 +2360,10 @@ function agentPromptPrefix(profile, requestedProfile) {
   }
   if (profile === "python_plc") {
     lines.push(
+      "使用 `$plc-host-control-software` 软件工程技能，把 PLC 寄存器与握手区当成版本化接口契约；PLC 保留实时控制和安全互锁，Python 负责通信、设备抽象、流程编排和上位机 API/UI。",
       "重点检查当前 Python 文件的真实 API、导入路径、运行命令、Modbus/485 初始化、读写函数、异常处理、反馈读取和命令执行顺序。",
-      "生成命令必须可执行，不能只给 `python 文件.py` 这种粗糙命令；需要先阅读代码再给出 import/call 形式。"
+      "同时核对接口版本、地址/类型/端序/缩放、命令序号或请求确认握手、busy/done/error、心跳、超时、重连和断线后的安全状态；禁止自动重放可能产生动作的写命令。",
+      "生成命令必须可执行，不能只给 `python 文件.py` 这种粗糙命令；需要先阅读代码再给出 import/call 形式，并补充模拟传输、契约测试和受控在线验证。"
     );
   }
   if (profile === "register_map") {
@@ -1674,6 +2397,42 @@ function agentPromptPrefix(profile, requestedProfile) {
   return `${lines.join("\n")}\n\n`;
 }
 
+function engineeringExperiencePromptPrefix(workspace) {
+  const memory = readEngineeringMemory();
+  const lines = [
+    "工程经验记忆在后台固定开启。先复用已验证经验，再结合当前工程、设备型号、固件/软件版本和现场证据重新核对；历史经验不是免验证的事实。",
+    "涉及电气、PLC、IO、驱动、传感器或软硬件联动时使用 `$electrical-engineering-workflow`；涉及 PLC 预留上位机接口、Python 控制、通信库或接口测试时同时使用 `$plc-host-control-software`。",
+    "遇到数据表、通讯协议、标准条款、器件能力或陌生故障机理时，联网搜索已默认开启，应主动查制造商官方手册、数据表、发行说明和适用 IEC/ISO/GB 标准或权威工程资料；记录来源链接、文档版本和访问日期。",
+    "工程推理必须把内容分成：当前项目已验证事实、外部资料、待验证假设。禁止把网上通用经验直接写成当前设备结论。",
+    "完成任务后，如果产生可复用且已经验证的新经验，更新工程经验主库；先查重，优先修订已有条目，不重复堆积。未验证猜测只能写入“待验证假设”，验证失败的经验要标记失效，不能继续沿用。",
+    "经验条目至少包含：日期、工作目录/项目、专业领域、设备与版本、现象、证据、根因、处理、验证方法与结果、资料来源、安全边界。不得写入账号、密钥、令牌或个人敏感信息。",
+    "工程经验主库: " + ENGINEERING_MEMORY_FILE,
+    "工程经验镜像: " + ENGINEERING_MEMORY_MIRROR_FILE,
+    "当前工作目录: " + workspace,
+    "",
+    "[最近工程经验]"
+  ];
+  lines.push(
+    memory.exists
+      ? trimTextUtf8(memory.text, MAX_ENGINEERING_MEMORY_CONTEXT_BYTES, true)
+      : "经验库尚未建立；本次出现第一条已验证、可复用经验时按上述字段创建。"
+  );
+  return lines.join("\n") + "\n\n";
+}
+
+function runtimePermissionPromptPrefix(sandbox, approval) {
+  const fullAccess = sandbox === "danger-full-access";
+  const lines = [
+    `本次客户端权限：${fullAccess ? "完全执行（无 Codex 文件沙箱）" : sandbox}；批准策略：${approval}。`,
+    fullAccess
+      ? "客户端已授权你在当前 Windows 进程本身拥有的权限范围内读取、修改文件并运行命令；不要为常规工程操作请求人工批准，直接执行并验证。"
+      : "当前仍受 Codex 沙箱限制；权限不足时直接记录错误并尝试权限范围内的替代方法，不要等待人工批准。",
+    "权限不等于 Windows 管理员令牌、账号密码、第三方登录或硬件现场许可。确实需要这些外部条件时，明确报告缺少的条件并结束等待，不能静默卡住。",
+    "高风险或不可逆操作仍必须先核对准确目标和当前状态；恢复任务不得盲目重复已经完成的写入、下载、提交、现场控制或其他不可逆步骤。"
+  ];
+  return `${lines.join("\n")}\n\n`;
+}
+
 function maintenancePromptPrefix() {
   const maintenance = readMaintenanceText();
   const lines = [
@@ -1692,6 +2451,7 @@ function maintenancePromptPrefix() {
     "- 改动后把维护内容追加到维护记录，并同步到 C:\\logs 的镜像文件。",
     "- 不要输出、保存或暴露 API Key、令牌、认证文件完整内容。",
     "- 保留历史记录、收藏记录、续问合并和 MCP 集成功能，除非用户明确要求改变。",
+    `- 客户端运行连续 60 秒没有新事件时，必须由 watchdog 自检进程、等待阶段和权限状态；最多进行 ${CODEX_WATCHDOG_RECOVERY_LIMIT} 次有上限的状态感知恢复，每次都要检查已完成步骤、绕开卡住工具并换一种方法取得新证据，仍无进展才按分级超时收尾。`,
     "- 代码检查优先运行 node --check server.js 和 node --check public/app.js；后端变化后需要重启本地服务。",
     "",
     "[最近维护记录]",
@@ -4177,6 +4937,7 @@ async function callCodesysMcpTool(tool, args = {}, options = {}) {
 async function handleCodesysStatus(_req, res, url) {
   const definition = getMcpDefinition("codesys");
   const defaultProject = path.resolve(CODESYS_DEFAULT_PROJECT);
+  const defaultProjectDirectory = path.dirname(defaultProject);
   const defaultExportPath = defaultCodesysExportPath(defaultProject);
   const shouldValidateSetup = url && url.searchParams.get("setup") === "1";
   const status = {
@@ -4189,6 +4950,7 @@ async function handleCodesysStatus(_req, res, url) {
     args: definition ? definition.args : [],
     profile: CODESYS_DEFAULT_PROFILE,
     defaultProject,
+    defaultProjectDirectory,
     defaultExportPath,
     defaultSaveAsPath: defaultCodesysCopyPath(defaultProject),
     gitRoot: path.resolve(CODESYS_DEFAULT_GIT_ROOT),
@@ -4217,16 +4979,47 @@ async function handleCodesysStatus(_req, res, url) {
 
 async function handleCodesysListProjects(req, res) {
   const payload = await readJsonBody(req, MAX_BODY_BYTES);
-  const resolvedInput = resolveCodesysProjectInput(payload.projectPath, {
-    useDefault: false,
-    allowMissing: true
-  });
-  const fallbackInput = resolvedInput.inputKind === "empty"
-    ? resolveCodesysProjectInput(CODESYS_DEFAULT_PROJECT, { useDefault: true, allowMissing: true })
-    : resolvedInput;
-  const searchRoot = fallbackInput.searchRoot || "";
-  const currentProject = fallbackInput.projectPath || "";
-  const projectPaths = fallbackInput.projects || [];
+  const requestedDirectory = String(payload.projectDirectory || "").trim();
+  const requestedProject = String(payload.projectPath || "").trim();
+  const defaultProject = path.resolve(CODESYS_DEFAULT_PROJECT);
+  let resolvedInput;
+  let currentProjectHint = "";
+
+  if (requestedDirectory) {
+    resolvedInput = resolveCodesysProjectInput(requestedDirectory, {
+      useDefault: false,
+      allowMissing: true,
+      maxDepth: 0
+    });
+    currentProjectHint = requestedProject || (resolvedInput.inputKind === "file" ? resolvedInput.projectPath : "");
+  } else if (requestedProject) {
+    resolvedInput = resolveCodesysProjectInput(requestedProject, {
+      useDefault: false,
+      allowMissing: true,
+      maxDepth: 0
+    });
+    currentProjectHint = resolvedInput.inputKind === "file" ? resolvedInput.projectPath : "";
+  } else {
+    resolvedInput = resolveCodesysProjectInput(path.dirname(defaultProject), {
+      useDefault: false,
+      allowMissing: true,
+      maxDepth: 0
+    });
+    currentProjectHint = defaultProject;
+  }
+
+  const searchRoot = resolvedInput.searchRoot || "";
+  const projectPaths = resolvedInput.inputKind === "file" && searchRoot
+    ? findCodesysProjectsInDirectory(searchRoot, { maxDepth: 0 })
+    : (resolvedInput.projects || []);
+  const resolvedProjectHint = currentProjectHint
+    ? (path.isAbsolute(currentProjectHint)
+      ? path.resolve(currentProjectHint)
+      : path.resolve(searchRoot || process.cwd(), currentProjectHint))
+    : "";
+  const currentProject = resolvedProjectHint
+    ? (projectPaths.find((projectPath) => samePath(projectPath, resolvedProjectHint)) || chooseCodesysProjectPath(projectPaths, searchRoot))
+    : chooseCodesysProjectPath(projectPaths, searchRoot);
   const projects = projectPaths
     .map((projectPath) => {
       const file = codesysFileInfo(projectPath);
@@ -4255,8 +5048,9 @@ async function handleCodesysListProjects(req, res) {
     ok: true,
     fast: true,
     dirPath: searchRoot,
+    projectDirectory: searchRoot,
     searchRoot,
-    inputKind: fallbackInput.inputKind,
+    inputKind: resolvedInput.inputKind,
     currentProject,
     currentExportDir: currentProject ? codesysExportDirectory(currentProject) : "",
     currentExportPath: currentProject ? findAssociatedCodesysXmlPath(currentProject, searchRoot) : "",
@@ -4923,19 +5717,31 @@ function killProcessTree(child) {
   }
 
   if (process.platform === "win32") {
-    const result = spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-      encoding: "utf8",
-      stdio: "ignore",
-      timeout: 10000,
-      windowsHide: true
-    });
-    if (result.status === 0) {
-      return true;
-    }
+    const fallbackKill = () => {
+      if (child.exitCode == null && child.signalCode == null) {
+        try {
+          child.kill();
+        } catch {
+          // The process may have exited while taskkill was running.
+        }
+      }
+    };
     try {
-      return child.kill();
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+      killer.once("error", fallbackKill);
+      killer.once("close", (code) => {
+        if (code !== 0) {
+          fallbackKill();
+        }
+      });
+      killer.unref();
+      return true;
     } catch {
-      return false;
+      fallbackKill();
+      return true;
     }
   }
 
@@ -4956,8 +5762,31 @@ function killProcessTree(child) {
   return true;
 }
 
+function isCodexChildRunning(record) {
+  const child = record && record.child;
+  return Boolean(child && child.pid && child.exitCode == null && child.signalCode == null);
+}
+
+function codexWaitInfo(record) {
+  const waitKind = String(record && record.waitKind ? record.waitKind : "").toLowerCase();
+  if (waitKind === "approval") {
+    return { kind: "approval", label: "等待权限确认", timeoutMs: CODEX_SELF_CHECK_MS };
+  }
+  if (waitKind === "input") {
+    return { kind: "input", label: "等待人工输入", timeoutMs: CODEX_SELF_CHECK_MS };
+  }
+  if (waitKind === "tool" || (record && record.pendingTools && record.pendingTools.size > 0)) {
+    return { kind: "tool", label: "等待本地工具返回", timeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS };
+  }
+  if (record && record.sawToolStarted) {
+    return { kind: "post-tool", label: "工具结束后等待模型继续", timeoutMs: CODEX_POST_TOOL_IDLE_TIMEOUT_MS };
+  }
+  return { kind: "model", label: "等待模型响应", timeoutMs: CODEX_STALL_TIMEOUT_MS };
+}
+
 function publicActiveCodexRun(record) {
   const now = Date.now();
+  const wait = codexWaitInfo(record);
   return {
     runId: record.runId,
     pid: record.child && record.child.pid ? record.child.pid : null,
@@ -4972,13 +5801,19 @@ function publicActiveCodexRun(record) {
     lastEventName: record.lastEventName || "",
     lastEventDetail: record.lastEventDetail || "",
     stalled: now - record.lastActivityAt >= CODEX_STALL_WARNING_MS,
-    toolWaiting: isCodexToolWaiting(record)
+    selfChecking: now - record.lastActivityAt >= CODEX_SELF_CHECK_MS,
+    selfCheckCount: record.selfCheckCount || 0,
+    watchdogRecoveryCount: record.watchdogRecoveryCount || 0,
+    waitKind: wait.kind,
+    waitLabel: wait.label,
+    effectiveTimeoutMs: wait.timeoutMs,
+    processAlive: isCodexChildRunning(record),
+    toolWaiting: wait.kind === "tool"
   };
 }
 
 function isCodexToolWaiting(record) {
-  const eventName = String(record && record.lastEventName ? record.lastEventName : "").toLowerCase();
-  return eventName === "item.started" || eventName === "function_call";
+  return codexWaitInfo(record).kind === "tool";
 }
 
 function appendLineParser(onLine) {
@@ -5015,17 +5850,30 @@ function buildCodexArgs(payload, workspace) {
     throw Object.assign(new Error("任务内容过长"), { statusCode: 413 });
   }
 
-  const sandbox = SANDBOX_VALUES.has(payload.sandbox) ? payload.sandbox : "workspace-write";
+  const sandbox = SANDBOX_VALUES.has(payload.sandbox) ? payload.sandbox : "danger-full-access";
   const requestedApproval = APPROVAL_VALUES.has(payload.approval) ? payload.approval : "never";
   const approvalDowngraded = requestedApproval === "on-request";
   const approval = approvalDowngraded ? "never" : requestedApproval;
-  const reasoningEffort = REASONING_VALUES.has(payload.reasoningEffort) ? payload.reasoningEffort : "default";
-  const requestedReasoningEffort = REASONING_VALUES.has(payload.requestedReasoningEffort) ? payload.requestedReasoningEffort : reasoningEffort;
-  const model = String(payload.model || "").trim();
+  const autoApprovalEnabled = payload.autoApprovalEnabled !== false;
+  const autoApprovalDelayMs = clampInteger(payload.autoApprovalDelayMs, 3000, 120000, 10000);
+  const providerConfig = getCodexConfigSummary();
+  const requestedReasoningEffort = REASONING_VALUES.has(payload.requestedReasoningEffort)
+    ? payload.requestedReasoningEffort
+    : REASONING_VALUES.has(payload.reasoningEffort) ? payload.reasoningEffort : "default";
+  const selectedReasoningEffort = REASONING_VALUES.has(payload.reasoningEffort)
+    ? payload.reasoningEffort
+    : requestedReasoningEffort;
+  const configuredReasoningEffort = REASONING_VALUES.has(providerConfig.modelReasoningEffort)
+    ? providerConfig.modelReasoningEffort
+    : "default";
+  const reasoningEffort = selectedReasoningEffort === "default"
+    ? configuredReasoningEffort
+    : selectedReasoningEffort;
+  const modelSelection = resolveRunModel(payload, providerConfig, reasoningEffort);
+  const { model, requestedModel, modelMode, modelSource } = modelSelection;
   const requestedAgentProfile = cleanAgentProfile(payload.agentProfile);
   const activeAgentProfile = inferAgentProfile(requestedAgentProfile, basePrompt);
   const agentLabel = (AGENT_PROFILE_DEFINITIONS[activeAgentProfile] || AGENT_PROFILE_DEFINITIONS.auto).label;
-  const providerConfig = getCodexConfigSummary();
   const providerProxyBaseUrl = shouldUseProviderProxy(providerConfig) ? localProviderProxyBaseUrl(providerConfig) : "";
   const selectedMcpNames = getSelectedMcpNames(payload);
   const mcpConfig = buildMcpConfigArgs(selectedMcpNames, Array.isArray(payload.mcpTools));
@@ -5033,7 +5881,26 @@ function buildCodexArgs(payload, workspace) {
   const continuation = buildContinuationPrompt(payload, basePrompt);
   const maintenanceEnabled = payload.maintenanceContext !== false;
   const workspaceContextEnabled = !!(payload.workspaceContext && typeof payload.workspaceContext === "object");
-  const prompt = `${maintenanceEnabled ? maintenancePromptPrefix() : ""}${mcpPromptPrefix(mcpConfig.enabled)}${agentPromptPrefix(activeAgentProfile, requestedAgentProfile)}${workspaceContextEnabled ? engineeringWorkspacePromptPrefix(payload.workspaceContext) : ""}${continuation.prompt}`;
+  const automaticDocuments = collectAutomaticDocumentContext(workspace);
+  const fixedPromptPrefix = [
+    maintenanceEnabled ? maintenancePromptPrefix() : "",
+    mcpPromptPrefix(mcpConfig.enabled),
+    runtimePermissionPromptPrefix(sandbox, approval),
+    agentPromptPrefix(activeAgentProfile, requestedAgentProfile),
+    engineeringExperiencePromptPrefix(workspace),
+    workspaceContextEnabled ? engineeringWorkspacePromptPrefix(payload.workspaceContext) : ""
+  ].join("");
+  const automaticDocumentText = automaticDocumentPromptPrefix(automaticDocuments);
+  const automaticDocumentBudget = Math.max(
+    0,
+    MAX_PROMPT_BYTES -
+      Buffer.byteLength(fixedPromptPrefix + continuation.prompt, "utf8") -
+      2048
+  );
+  const automaticDocumentPrefix = automaticDocumentBudget > 0
+    ? trimTextUtf8(automaticDocumentText, automaticDocumentBudget)
+    : "";
+  const prompt = fixedPromptPrefix + automaticDocumentPrefix + continuation.prompt;
   if (Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) {
     throw Object.assign(new Error("任务内容过长，请缩短指令或历史上下文"), { statusCode: 413 });
   }
@@ -5074,11 +5941,10 @@ function buildCodexArgs(payload, workspace) {
     args.push("--ephemeral");
   }
 
-  if (model) {
-    if (!MODEL_ID_PATTERN.test(model)) {
-      throw Object.assign(new Error("模型名称包含不支持的字符"), { statusCode: 400 });
-    }
-    args.push("--model", model);
+  args.push("--model", model);
+
+  for (const attachment of automaticDocuments.visualAttachments) {
+    args.push("--image", attachment.filePath);
   }
 
   args.push("-");
@@ -5090,7 +5956,12 @@ function buildCodexArgs(payload, workspace) {
     approval,
     requestedApproval,
     approvalDowngraded,
+    autoApprovalEnabled,
+    autoApprovalDelayMs,
     model,
+    requestedModel,
+    modelMode,
+    modelSource,
     agentProfile: requestedAgentProfile,
     activeAgentProfile,
     agentLabel,
@@ -5098,10 +5969,12 @@ function buildCodexArgs(payload, workspace) {
     reasoningEffort,
     mcpTools: mcpConfig.enabled,
     addDirs: extraWritableDirs,
+    providerConfig,
     providerProxyBaseUrl,
     maintenanceContext: maintenanceEnabled,
     maintenance: maintenanceEnabled ? publicMaintenanceStatus({ includeText: false }) : null,
     workspaceContext: workspaceContextEnabled,
+    automaticDocuments: publicAutomaticDocumentContext(automaticDocuments),
     continueFrom: continuation.parent ? publicHistoryRecord(continuation.parent, { details: false }) : null
   };
 }
@@ -5111,7 +5984,7 @@ async function handleRun(req, res) {
   const workspace = resolveRunWorkspace(payload);
   const run = buildCodexArgs(payload, workspace);
   const invocation = getCodexInvocation();
-  const providerConfig = getCodexConfigSummary();
+  const providerConfig = run.providerConfig;
   const runId = crypto.randomUUID();
 
   res.writeHead(200, {
@@ -5141,11 +6014,31 @@ async function handleRun(req, res) {
     lastEventName: "spawn",
     lastEventDetail: "Codex 进程已启动",
     stallWarningSent: false,
+    selfCheckSent: false,
+    selfCheckCount: 0,
+    watchdogRecoveryCount: 0,
+    recoveryPending: false,
+    recoveryChild: null,
+    recoveryKillTimer: null,
+    recoveryTrigger: "",
+    recoveryPrompt: "",
+    recoveryStateAware: false,
+    recoveryHistory: [],
+    approvalAbortDetected: false,
+    approvalAbortDetail: "",
+    interactionNoticeSent: false,
+    interactionDeadlineAt: 0,
+    interactionKind: "",
+    pendingTools: new Set(),
+    waitKind: "model",
+    sawToolStarted: false,
     completionExitTimer: null,
     attempt: 0,
     maxAttempts,
     providerRetryCount: 0,
-    stop: null
+    stop: null,
+    requestRecovery: null,
+    updateApprovalPolicy: null
   };
 
   function markActivity(eventName, detail = "") {
@@ -5153,6 +6046,7 @@ async function handleRun(req, res) {
     activeRun.lastEventName = String(eventName || "activity");
     activeRun.lastEventDetail = trimText(detail || "", 240);
     activeRun.stallWarningSent = false;
+    activeRun.selfCheckSent = false;
   }
 
   function clearCompletionTimer() {
@@ -5184,7 +6078,12 @@ async function handleRun(req, res) {
       clearTimeout(retryTimer);
       retryTimer = null;
     }
+    if (activeRun.recoveryKillTimer) {
+      clearTimeout(activeRun.recoveryKillTimer);
+      activeRun.recoveryKillTimer = null;
+    }
     ACTIVE_CODEX_RUNS.delete(runId);
+    syncEngineeringMemoryMirror();
     if (options.killChild === true) {
       killProcessTree(activeRun.child);
     }
@@ -5203,7 +6102,12 @@ async function handleRun(req, res) {
       stopped: options.stopped === true,
       stalled: options.stalled === true,
       autoStopped: options.autoStopped === true,
-      reason: options.reason || ""
+      reason: options.reason || "",
+      waitKind: codexWaitInfo(activeRun).kind,
+      selfCheckCount: activeRun.selfCheckCount || 0,
+      watchdogRecoveryCount: activeRun.watchdogRecoveryCount || 0,
+      approvalAbortDetected: activeRun.approvalAbortDetected === true,
+      approvalAbortDetail: activeRun.approvalAbortDetail || ""
     });
     if (!res.destroyed && !res.writableEnded) {
       res.end();
@@ -5215,25 +6119,35 @@ async function handleRun(req, res) {
   }
 
   activeRun.stop = (reason = "user") => {
-    const toolIdle = reason === "tool-idle";
-    const stalled = reason === "stalled" || toolIdle;
+    const toolIdle = reason === "tool-idle" || reason === "post-tool-idle";
+    const interactionRequired = reason === "interaction-required";
+    const stalled = reason === "stalled" || toolIdle || interactionRequired;
     if (stalled) {
+      const wait = codexWaitInfo(activeRun);
       streamEvent(res, "stalled", {
         elapsedMs: Date.now() - startedAt,
         idleMs: Date.now() - activeRun.lastActivityAt,
         warningMs: CODEX_STALL_WARNING_MS,
         timeoutMs: CODEX_STALL_TIMEOUT_MS,
         toolIdle,
+        interactionRequired,
+        waitKind: wait.kind,
+        waitLabel: wait.label,
+        effectiveTimeoutMs: wait.timeoutMs,
         toolIdleTimeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS,
         lastEventName: activeRun.lastEventName,
         lastEventDetail: activeRun.lastEventDetail,
         autoStopped: true,
-        message: toolIdle
-          ? "Codex 本地工具调用长时间没有返回，客户端已自动停止任务。"
-          : "Codex 长时间没有新进展，客户端已自动停止任务。"
+        message: interactionRequired
+          ? activeRun.approvalAbortDetected
+            ? "外层宿主的授权已取消；客户端已立即停止本轮任务，并禁止 watchdog 重放同一命令。"
+            : "检测到需要权限确认或人工输入，但网页任务是非交互运行；客户端已自动停止，避免无限等待。"
+          : toolIdle
+            ? "Codex 工具链长时间没有继续返回进展，客户端已自动停止任务。"
+            : "Codex 长时间没有新进展，客户端已自动停止任务。"
       });
     }
-    finishRun(null, toolIdle ? "TOOL_IDLE_TIMEOUT" : stalled ? "STALL_TIMEOUT" : "CLIENT_STOP", {
+    finishRun(null, interactionRequired ? "INTERACTION_REQUIRED" : toolIdle ? "TOOL_IDLE_TIMEOUT" : stalled ? "STALL_TIMEOUT" : "CLIENT_STOP", {
       synthetic: true,
       killChild: true,
       stopped: !stalled,
@@ -5248,8 +6162,127 @@ async function handleRun(req, res) {
     return String(event && event.type ? event.type : "").toLowerCase();
   }
 
+  function codexItemType(event) {
+    const item = event && event.item && typeof event.item === "object" ? event.item : {};
+    return String(item.type || "").toLowerCase();
+  }
+
+  function isCodexToolItemType(itemType) {
+    const value = String(itemType || "").toLowerCase();
+    return (
+      value.includes("command") ||
+      value.includes("function_call") ||
+      value.includes("tool_call") ||
+      value.includes("mcp") ||
+      value.includes("web_search") ||
+      value.includes("file_change")
+    );
+  }
+
+  function codexInteractionWaitKind(event) {
+    const item = event && event.item && typeof event.item === "object" ? event.item : {};
+    const marker = [
+      codexEventType(event),
+      codexItemType(event),
+      item.name,
+      event && event.name
+    ].filter(Boolean).join(" ").toLowerCase();
+    if (/approval|permission|confirmation|authorize/.test(marker)) {
+      return "approval";
+    }
+    if (/request_user_input|user[_ -]?input|elicitation|prompt_user/.test(marker)) {
+      return "input";
+    }
+    return "";
+  }
+
+  function looksLikeCodexInteractionWait(text) {
+    return /waiting (?:for )?(?:approval|permission|confirmation|user input)|approval required|request_user_input|press (?:enter|y\/n)|等待.{0,12}(?:授权|批准|确认|输入)|需要.{0,12}(?:人工确认|用户输入)/i.test(String(text || ""));
+  }
+
+  function looksLikeCodexApprovalAbort(text) {
+    return /approval request aborted|you canceled the request|conversation interrupted/i.test(String(text || ""));
+  }
+
+  function codexItemKey(event) {
+    const item = event && event.item && typeof event.item === "object" ? event.item : {};
+    return String(item.id || item.call_id || (event && (event.id || event.call_id)) || item.type || "tool");
+  }
+
+  function noteInteractionWait(kind, detail = "") {
+    activeRun.waitKind = kind;
+    activeRun.interactionKind = kind;
+    if (activeRun.interactionNoticeSent) {
+      return;
+    }
+    activeRun.interactionNoticeSent = true;
+    activeRun.interactionDeadlineAt = kind === "approval" && run.autoApprovalEnabled
+      ? Date.now() + run.autoApprovalDelayMs
+      : 0;
+    streamEvent(res, "approval-required", {
+      runId,
+      kind,
+      message: kind === "approval" ? "检测到任务正在等待权限确认。" : "检测到任务正在等待人工输入。",
+      detail: previewText(detail || activeRun.lastEventDetail, 500),
+      autoApprovalEnabled: kind === "approval" && run.autoApprovalEnabled,
+      autoApprovalDelayMs: run.autoApprovalDelayMs,
+      deadlineAt: activeRun.interactionDeadlineAt || null,
+      recoveryAvailable: activeRun.watchdogRecoveryCount < CODEX_WATCHDOG_RECOVERY_LIMIT
+    });
+  }
+
+  function noteApprovalAbort(detail = "") {
+    if (finished || activeRun.approvalAbortDetected) {
+      return;
+    }
+    activeRun.approvalAbortDetected = true;
+    activeRun.approvalAbortDetail = previewText(detail || "外层授权已取消", 500);
+    activeRun.waitKind = "approval";
+    activeRun.interactionKind = "approval";
+    activeRun.interactionDeadlineAt = 0;
+    streamEvent(res, "approval-aborted", {
+      runId,
+      message: "外层授权已取消，本轮不会再次自动重试。",
+      detail: activeRun.approvalAbortDetail,
+      recoveryBlocked: true
+    });
+    activeRun.stop("interaction-required");
+  }
+
+  function updateCodexWaitState(event) {
+    const type = codexEventType(event);
+    const interactionKind = codexInteractionWaitKind(event);
+    if (interactionKind) {
+      noteInteractionWait(interactionKind, findCodexEventDetail(event));
+      return;
+    }
+    if (isCodexToolStartEvent(event)) {
+      activeRun.pendingTools.add(codexItemKey(event));
+      activeRun.waitKind = "tool";
+      activeRun.sawToolStarted = true;
+      return;
+    }
+    if (type === "item.completed") {
+      const key = codexItemKey(event);
+      activeRun.pendingTools.delete(key);
+      if (isCodexToolItemType(codexItemType(event)) && activeRun.pendingTools.size === 0) {
+        activeRun.waitKind = "model";
+      }
+      return;
+    }
+    if (type === "turn.completed" || type === "turn.failed") {
+      activeRun.pendingTools.clear();
+      activeRun.waitKind = "model";
+      return;
+    }
+    if (activeRun.pendingTools.size === 0 && activeRun.waitKind !== "approval" && activeRun.waitKind !== "input") {
+      activeRun.waitKind = "model";
+    }
+  }
+
   function isCodexFinalResultLikeEvent(event) {
     const type = codexEventType(event);
+    const itemType = codexItemType(event);
     const item = event && event.item && typeof event.item === "object" ? event.item : {};
     const text = [
       event && event.text,
@@ -5258,22 +6291,23 @@ async function handleRun(req, res) {
       item.text,
       item.message
     ].filter(Boolean).join("\n");
+    if (isCodexToolItemType(itemType)) {
+      return false;
+    }
     return Boolean(text.trim()) && (
       type.includes("output_text.done") ||
       type.includes("message") ||
-      type === "item.completed"
+      (type === "item.completed" && (itemType === "message" || itemType === "agent_message"))
     );
   }
 
   function isCodexToolStartEvent(event) {
     const type = codexEventType(event);
-    const item = event && event.item && typeof event.item === "object" ? event.item : {};
-    const itemType = String(item.type || "").toLowerCase();
+    const itemType = codexItemType(event);
     return (
       type === "function_call" ||
-      type === "item.started" ||
-      itemType.includes("function_call") ||
-      itemType.includes("tool")
+      isCodexToolItemType(type) ||
+      (type === "item.started" && isCodexToolItemType(itemType))
     );
   }
 
@@ -5316,12 +6350,28 @@ async function handleRun(req, res) {
       maintenanceContext: run.maintenanceContext,
       workspaceContext: run.workspaceContext,
       maintenance: run.maintenance,
-      model: run.model || null,
+      automaticDocuments: run.automaticDocuments,
+      model: run.model,
+      requestedModel: run.requestedModel,
+      modelMode: run.modelMode,
+      modelSource: run.modelSource,
       provider: providerConfig,
       providerProxyBaseUrl: run.providerProxyBaseUrl || "",
+      interactiveApprovalSupported: false,
+      approvalRecoverySupported: true,
+      autoApprovalEnabled: run.autoApprovalEnabled,
+      autoApprovalDelayMs: run.autoApprovalDelayMs,
+      selfCheckMs: CODEX_SELF_CHECK_MS,
       stallWarningMs: CODEX_STALL_WARNING_MS,
+      safeRestartMs: CODEX_SAFE_RESTART_MS,
       stallTimeoutMs: CODEX_STALL_TIMEOUT_MS,
       toolIdleTimeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS,
+      postToolIdleTimeoutMs: CODEX_POST_TOOL_IDLE_TIMEOUT_MS,
+      watchdogRecoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+      watchdogRecoveryCount: activeRun.watchdogRecoveryCount || 0,
+      recoveryTrigger: activeRun.recoveryTrigger || "",
+      recoveryStateAware: activeRun.recoveryStateAware === true,
+      fullAccess: run.sandbox === "danger-full-access",
       attempt: activeRun.attempt || 1,
       maxAttempts,
       providerRetryCount: activeRun.providerRetryCount || 0,
@@ -5376,6 +6426,182 @@ async function handleRun(req, res) {
     activeRun.completionExitTimer.unref();
   }
 
+  function watchdogRecoveryThreshold(waitKind) {
+    if (waitKind === "approval" || waitKind === "input") {
+      return CODEX_SELF_CHECK_MS;
+    }
+    if (waitKind === "tool") {
+      return CODEX_TOOL_IDLE_TIMEOUT_MS;
+    }
+    if (waitKind === "post-tool") {
+      return CODEX_POST_TOOL_IDLE_TIMEOUT_MS;
+    }
+    return CODEX_SAFE_RESTART_MS;
+  }
+
+  function watchdogTriggerLabel(trigger) {
+    const labels = {
+      "model-idle": "模型长时间无事件",
+      "tool-idle": "本地工具长时间未返回",
+      "post-tool-idle": "工具结束后模型未继续",
+      "interaction-required": "检测到权限或人工输入等待",
+      "manual-approval": "用户允许以完全权限恢复",
+      "auto-approval": "授权倒计时结束后自动恢复",
+      stalled: "任务整体无进展"
+    };
+    return labels[trigger] || trigger || "任务无进展";
+  }
+
+  function watchdogRecoveryPlan(recoveryCount) {
+    if (recoveryCount <= 1) {
+      return {
+        label: "现场核对并换路径",
+        instruction: "先读取工作区、Git diff、相关进程和工具状态；不要再次调用刚刚卡住的同一个工具，先用低风险读取或替代命令取得新证据。"
+      };
+    }
+    if (recoveryCount === 2) {
+      return {
+        label: "缩小范围并完成最小步骤",
+        instruction: "把原任务拆成尚未完成的最小可验证子任务，优先完成不依赖卡住工具的部分；对替代工具设置明确超时，不要继续空等原工具。"
+      };
+    }
+    return {
+      label: "交付可验证的部分结果",
+      instruction: "停止等待不可用依赖，完成能独立验证的修改或分析；如果确实无法继续，输出阻塞证据、已完成步骤和下一步，而不是继续等待。"
+    };
+  }
+
+  function buildWatchdogRecoveryPrompt(trigger, idleMs) {
+    const wait = codexWaitInfo(activeRun);
+    const recoveryCount = Math.max(1, activeRun.watchdogRecoveryCount || 1);
+    const recoveryPlan = watchdogRecoveryPlan(recoveryCount);
+    const previousRecoveryText = activeRun.recoveryHistory
+      .slice(0, -1)
+      .map((item) => `第 ${item.count} 次=${watchdogTriggerLabel(item.trigger)}/${item.waitKind}`)
+      .join("；") || "无";
+    const recoveryHeader = [
+      `这是客户端 watchdog 自动发起的第 ${recoveryCount}/${CODEX_WATCHDOG_RECOVERY_LIMIT} 次恢复运行。不要从头盲目重做原任务。`,
+      `恢复原因: ${watchdogTriggerLabel(trigger)}`,
+      `无新事件: ${Math.round(Math.max(0, idleMs) / 1000)} 秒`,
+      `等待阶段: ${wait.label}`,
+      `本次恢复策略: ${recoveryPlan.label}`,
+      "现场状态：恢复运行必须先核对当前文件、进程、工具和已完成步骤。",
+      `之前的恢复尝试: ${previousRecoveryText}`,
+      `上次运行是否启动过工具: ${activeRun.sawToolStarted ? "是" : "否"}`,
+      `尚未完成的工具数: ${activeRun.pendingTools.size}`,
+      `最后事件: ${activeRun.lastEventName || "未知"}`,
+      `最后事件内容: ${activeRun.lastEventDetail || "无"}`,
+      "恢复执行规则：",
+      `0. ${recoveryPlan.instruction}`,
+      "1. 先检查当前工作区文件、Git diff、相关进程和可读取的工具状态，判断哪些步骤已经完成。",
+      "2. 保留已经完成且正确的结果，不重复不可逆操作；尤其不要盲目重复删除、覆盖、提交、下载、现场寄存器写入或设备动作。",
+      "3. 找到上次停滞的原因，改用不同的方法继续，并主动运行必要的低风险验证。",
+      `4. 当前执行权限为 ${run.sandbox === "danger-full-access" ? "完全执行" : "非交互沙箱"}，不要请求或等待人工批准。权限不足时换可行方法。`,
+      "5. 如果上次出现 approval request aborted、You canceled the request 或 Conversation interrupted，禁止原样重放同一命令；应改用无需外层授权的方法，无法替代时直接结束。",
+      "6. 如果必须依赖 Windows 管理员令牌、账号凭据、第三方登录或硬件现场确认，明确说明缺少的外部条件并结束，不要继续等待。",
+      "7. 完成原任务后直接给出结果、验证和剩余风险。"
+    ].join("\n");
+    const separator = "\n\n[原任务与原运行上下文]\n";
+    const promptBudget = Math.max(0, MAX_PROMPT_BYTES - Buffer.byteLength(recoveryHeader + separator, "utf8"));
+    return `${recoveryHeader}${separator}${trimTextUtf8(run.prompt, promptBudget, true)}`;
+  }
+
+  function startWatchdogRecovery(idleMs, trigger = "model-idle") {
+    const child = activeRun.child;
+    if (
+      finished ||
+      activeRun.approvalAbortDetected ||
+      activeRun.recoveryPending ||
+      activeRun.watchdogRecoveryCount >= CODEX_WATCHDOG_RECOVERY_LIMIT ||
+      sawTurnEnd
+    ) {
+      return false;
+    }
+    if (!isCodexChildRunning(activeRun)) {
+      finishRun(null, "PROCESS_MISSING", {
+        synthetic: true,
+        stalled: true,
+        autoStopped: true,
+        reason: "process-missing"
+      });
+      return true;
+    }
+
+    activeRun.watchdogRecoveryCount += 1;
+    activeRun.recoveryPending = true;
+    activeRun.recoveryChild = child;
+    activeRun.recoveryTrigger = trigger;
+    activeRun.recoveryStateAware = activeRun.sawToolStarted || sawToolStarted || trigger !== "model-idle";
+    activeRun.recoveryHistory.push({
+      count: activeRun.watchdogRecoveryCount,
+      trigger,
+      waitKind: codexWaitInfo(activeRun).kind,
+      idleMs,
+      lastEventName: activeRun.lastEventName,
+      lastEventDetail: activeRun.lastEventDetail
+    });
+    const recoveryPlan = watchdogRecoveryPlan(activeRun.watchdogRecoveryCount);
+    activeRun.recoveryPrompt = buildWatchdogRecoveryPrompt(trigger, idleMs);
+    streamEvent(res, "recovery", {
+      runId,
+      action: "restart",
+      trigger,
+      triggerLabel: watchdogTriggerLabel(trigger),
+      stateAware: activeRun.recoveryStateAware,
+      hadToolActivity: activeRun.sawToolStarted,
+      idleMs,
+      recoveryCount: activeRun.watchdogRecoveryCount,
+      recoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+      strategy: recoveryPlan.label,
+      lastEventName: activeRun.lastEventName,
+      lastEventDetail: activeRun.lastEventDetail,
+      message: activeRun.recoveryStateAware
+        ? `watchdog 将携带现场状态启动第 ${activeRun.watchdogRecoveryCount}/${CODEX_WATCHDOG_RECOVERY_LIMIT} 次恢复；本次策略为换方法取得新进展。`
+        : `watchdog 将启动第 ${activeRun.watchdogRecoveryCount}/${CODEX_WATCHDOG_RECOVERY_LIMIT} 次恢复，并要求新任务先自检后继续。`
+    });
+    if (!killProcessTree(child)) {
+      activeRun.recoveryPending = false;
+      activeRun.recoveryChild = null;
+      activeRun.stop("stalled");
+      return true;
+    }
+    activeRun.recoveryKillTimer = setTimeout(() => {
+      if (finished || !activeRun.recoveryPending || activeRun.recoveryChild !== child) {
+        return;
+      }
+      activeRun.recoveryPending = false;
+      activeRun.recoveryChild = null;
+      activeRun.recoveryKillTimer = null;
+      streamEvent(res, "recovery", {
+        runId,
+        action: "failed",
+        idleMs: Date.now() - activeRun.lastActivityAt,
+        recoveryCount: activeRun.watchdogRecoveryCount,
+        recoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+        message: "旧模型进程未在恢复时限内退出，客户端已放弃重启并安全收尾。"
+      });
+      activeRun.stop("stalled");
+    }, CODEX_RECOVERY_KILL_GRACE_MS);
+    activeRun.recoveryKillTimer.unref();
+    return true;
+  }
+
+  activeRun.requestRecovery = (trigger = "manual-approval") => {
+    return startWatchdogRecovery(Math.max(0, Date.now() - activeRun.lastActivityAt), trigger);
+  };
+  activeRun.updateApprovalPolicy = (enabled, delayMs) => {
+    run.autoApprovalEnabled = enabled === true;
+    run.autoApprovalDelayMs = clampInteger(delayMs, 3000, 120000, run.autoApprovalDelayMs || 10000);
+    activeRun.interactionDeadlineAt = activeRun.waitKind === "approval" && run.autoApprovalEnabled
+      ? Date.now() + run.autoApprovalDelayMs
+      : 0;
+    return {
+      autoApprovalEnabled: run.autoApprovalEnabled,
+      autoApprovalDelayMs: run.autoApprovalDelayMs,
+      deadlineAt: activeRun.interactionDeadlineAt || null
+    };
+  };
+
   function launchAttempt(reason = "initial") {
     if (finished) {
       return;
@@ -5385,8 +6611,21 @@ async function handleRun(req, res) {
     attemptErrorText = "";
     activeRun.attempt += 1;
     activeRun.lastActivityAt = Date.now();
-    activeRun.lastEventName = reason === "initial" ? "spawn" : "provider-retry-start";
-    activeRun.lastEventDetail = reason === "initial" ? "Codex 进程已启动" : `第 ${activeRun.attempt}/${maxAttempts} 次自动重试已启动`;
+    activeRun.pendingTools.clear();
+    activeRun.waitKind = "model";
+    activeRun.sawToolStarted = false;
+    activeRun.interactionNoticeSent = false;
+    activeRun.interactionDeadlineAt = 0;
+    activeRun.interactionKind = "";
+    activeRun.selfCheckSent = false;
+    activeRun.lastEventName = reason === "initial"
+      ? "spawn"
+      : reason === "watchdog-recovery" ? "watchdog-recovery-start" : "provider-retry-start";
+    activeRun.lastEventDetail = reason === "initial"
+      ? "Codex 进程已启动"
+      : reason === "watchdog-recovery"
+        ? `watchdog 已启动状态感知恢复: ${watchdogTriggerLabel(activeRun.recoveryTrigger)}`
+        : `第 ${activeRun.attempt}/${maxAttempts} 次自动重试已启动`;
 
     const child = spawn(invocation.command, [...invocation.baseArgs, ...run.args], {
       cwd: workspace,
@@ -5410,6 +6649,7 @@ async function handleRun(req, res) {
         if (isCodexToolStartEvent(event)) {
           sawToolStarted = true;
         }
+        updateCodexWaitState(event);
         activeRun.lastEventName = type || "codex";
         activeRun.lastEventDetail = previewText(findCodexEventDetail(event), 240);
         streamEvent(res, "codex", event);
@@ -5424,6 +6664,13 @@ async function handleRun(req, res) {
       attemptErrorText = appendTailText(attemptErrorText, line, 12000);
       allErrorText = appendTailText(allErrorText, line, 24000);
       streamEvent(res, "stderr", { text: line });
+      if (looksLikeCodexApprovalAbort(line)) {
+        noteApprovalAbort(line);
+        return;
+      }
+      if (looksLikeCodexInteractionWait(line)) {
+        noteInteractionWait(/input|press|输入/i.test(line) ? "input" : "approval", line);
+      }
     });
 
     child.on("error", (error) => {
@@ -5446,6 +6693,16 @@ async function handleRun(req, res) {
 
     child.on("close", (code, signal) => {
       flushCurrentParsers();
+      if (activeRun.recoveryPending && activeRun.recoveryChild === child) {
+        if (activeRun.recoveryKillTimer) {
+          clearTimeout(activeRun.recoveryKillTimer);
+          activeRun.recoveryKillTimer = null;
+        }
+        activeRun.recoveryPending = false;
+        activeRun.recoveryChild = null;
+        launchAttempt("watchdog-recovery");
+        return;
+      }
       if (shouldRetryProviderFailure(code, signal)) {
         scheduleProviderRetry(code, signal);
         return;
@@ -5455,12 +6712,14 @@ async function handleRun(req, res) {
 
     if (reason === "initial") {
       streamEvent(res, "ready", buildRunReadyData(child));
+    } else if (reason === "watchdog-recovery") {
+      streamEvent(res, "recovery-started", buildRunReadyData(child));
     } else {
       streamEvent(res, "retry-started", buildRunReadyData(child));
     }
 
     try {
-      child.stdin.end(run.prompt);
+      child.stdin.end(reason === "watchdog-recovery" && activeRun.recoveryPrompt ? activeRun.recoveryPrompt : run.prompt);
     } catch (error) {
       const message = error.message || String(error);
       attemptErrorText = appendTailText(attemptErrorText, message, 12000);
@@ -5475,12 +6734,96 @@ async function handleRun(req, res) {
     }
     const now = Date.now();
     const idleMs = now - activeRun.lastActivityAt;
-    const toolWaiting = isCodexToolWaiting(activeRun);
+    const wait = codexWaitInfo(activeRun);
+    const toolWaiting = wait.kind === "tool";
+    const selfChecking = idleMs >= CODEX_SELF_CHECK_MS;
+
+    if (selfChecking && !activeRun.selfCheckSent) {
+      activeRun.selfCheckSent = true;
+      activeRun.selfCheckCount += 1;
+      streamEvent(res, "self-check", {
+        runId,
+        elapsedMs: now - startedAt,
+        idleMs,
+        selfCheckMs: CODEX_SELF_CHECK_MS,
+        waitKind: wait.kind,
+        waitLabel: wait.label,
+        effectiveTimeoutMs: wait.timeoutMs,
+        processAlive: isCodexChildRunning(activeRun),
+        recoveryEligible: !sawTurnEnd &&
+          activeRun.watchdogRecoveryCount < CODEX_WATCHDOG_RECOVERY_LIMIT,
+        recoveryAtMs: watchdogRecoveryThreshold(wait.kind),
+        recoveryCount: activeRun.watchdogRecoveryCount,
+        recoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+        lastEventName: activeRun.lastEventName,
+        lastEventDetail: activeRun.lastEventDetail,
+        message: wait.kind === "approval" || wait.kind === "input"
+          ? "检测到任务正在等待人工操作，客户端已显示处理界面并继续监控。"
+          : `连续 ${Math.round(idleMs / 1000)} 秒没有新事件，watchdog 已检查子进程和等待阶段。`
+      });
+    }
+
+    if (activeRun.recoveryPending) {
+      return;
+    }
+    if (!isCodexChildRunning(activeRun) && !retryTimer) {
+      finishRun(null, "PROCESS_MISSING", {
+        synthetic: true,
+        stalled: true,
+        autoStopped: true,
+        reason: "process-missing"
+      });
+      return;
+    }
+    if (
+      wait.kind === "approval" &&
+      run.autoApprovalEnabled &&
+      activeRun.interactionDeadlineAt > 0 &&
+      now >= activeRun.interactionDeadlineAt
+    ) {
+      if (startWatchdogRecovery(idleMs, "auto-approval")) {
+        return;
+      }
+      activeRun.stop("interaction-required");
+      return;
+    }
+    if (wait.kind === "input" && selfChecking) {
+      if (startWatchdogRecovery(idleMs, "interaction-required")) {
+        return;
+      }
+      activeRun.stop("interaction-required");
+      return;
+    }
     if (toolWaiting && idleMs >= CODEX_TOOL_IDLE_TIMEOUT_MS) {
+      if (startWatchdogRecovery(idleMs, "tool-idle")) {
+        return;
+      }
       activeRun.stop("tool-idle");
       return;
     }
+    if (wait.kind === "post-tool" && idleMs >= CODEX_POST_TOOL_IDLE_TIMEOUT_MS) {
+      if (startWatchdogRecovery(idleMs, "post-tool-idle")) {
+        return;
+      }
+      activeRun.stop("post-tool-idle");
+      return;
+    }
+    if (
+      wait.kind === "model" &&
+      idleMs >= CODEX_SAFE_RESTART_MS
+    ) {
+      if (startWatchdogRecovery(idleMs, "model-idle")) {
+        return;
+      }
+    }
     if (idleMs >= CODEX_STALL_TIMEOUT_MS) {
+      if (wait.kind === "approval" || wait.kind === "input") {
+        activeRun.stop("interaction-required");
+        return;
+      }
+      if (wait.kind !== "approval" && startWatchdogRecovery(idleMs, "stalled")) {
+        return;
+      }
       activeRun.stop("stalled");
       return;
     }
@@ -5494,12 +6837,16 @@ async function handleRun(req, res) {
         timeoutMs: CODEX_STALL_TIMEOUT_MS,
         toolWaiting,
         toolIdleTimeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS,
+        postToolIdleTimeoutMs: CODEX_POST_TOOL_IDLE_TIMEOUT_MS,
+        waitKind: wait.kind,
+        waitLabel: wait.label,
+        effectiveTimeoutMs: wait.timeoutMs,
+        selfChecking,
+        selfCheckMs: CODEX_SELF_CHECK_MS,
         lastEventName: activeRun.lastEventName,
         lastEventDetail: activeRun.lastEventDetail,
         autoStopped: false,
-        message: toolWaiting
-          ? "Codex 已开始本地工具调用，但暂时没有返回输出。"
-          : "Codex 暂时没有新进展，可能卡在工具调用或模型连接。"
+        message: `${wait.label}，暂时没有返回新事件。`
       });
     }
     streamEvent(res, "heartbeat", {
@@ -5509,13 +6856,22 @@ async function handleRun(req, res) {
       timeoutMs: CODEX_STALL_TIMEOUT_MS,
       toolWaiting,
       toolIdleTimeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS,
+      postToolIdleTimeoutMs: CODEX_POST_TOOL_IDLE_TIMEOUT_MS,
+      waitKind: wait.kind,
+      waitLabel: wait.label,
+      effectiveTimeoutMs: wait.timeoutMs,
+      selfChecking,
+      selfCheckMs: CODEX_SELF_CHECK_MS,
+      selfCheckCount: activeRun.selfCheckCount,
+      watchdogRecoveryCount: activeRun.watchdogRecoveryCount,
+      watchdogRecoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+      autoApprovalEnabled: run.autoApprovalEnabled,
+      approvalDeadlineAt: activeRun.interactionDeadlineAt || null,
       stalled,
       lastEventName: activeRun.lastEventName,
       lastEventDetail: activeRun.lastEventDetail,
-      message: stalled
-        ? toolWaiting
-          ? "Codex 本地工具调用尚未返回。"
-          : "Codex 暂时没有新进展。"
+      message: selfChecking
+        ? `watchdog 正在自检：${wait.label}。`
         : "Codex 正在思考或运行。"
     });
   }, CODEX_HEARTBEAT_INTERVAL_MS);
@@ -5574,6 +6930,42 @@ async function handleStopRun(req, res) {
   });
 }
 
+async function handleRecoverRun(req, res) {
+  const payload = await readJsonBody(req);
+  const runId = String(payload.runId || "").trim();
+  const activeRun = runId ? ACTIVE_CODEX_RUNS.get(runId) : null;
+  if (!activeRun) {
+    sendJson(res, 404, { ok: false, runId, message: "未找到运行中的 Codex 任务" });
+    return;
+  }
+  const wait = codexWaitInfo(activeRun);
+  if (wait.kind !== "approval" && wait.kind !== "input") {
+    sendJson(res, 409, { ok: false, runId, message: "当前任务没有等待授权或人工输入" });
+    return;
+  }
+  if (typeof activeRun.requestRecovery !== "function" || !activeRun.requestRecovery("manual-approval")) {
+    sendJson(res, 409, { ok: false, runId, message: "本轮自动恢复次数已用完，无法再次重启" });
+    return;
+  }
+  sendJson(res, 200, {
+    ok: true,
+    runId,
+    message: "已允许客户端以完全权限携带现场状态恢复一次"
+  });
+}
+
+async function handleApprovalPolicy(req, res) {
+  const payload = await readJsonBody(req);
+  const runId = String(payload.runId || "").trim();
+  const activeRun = runId ? ACTIVE_CODEX_RUNS.get(runId) : null;
+  if (!activeRun || typeof activeRun.updateApprovalPolicy !== "function") {
+    sendJson(res, 404, { ok: false, runId, message: "未找到运行中的 Codex 任务" });
+    return;
+  }
+  const policy = activeRun.updateApprovalPolicy(payload.enabled === true, payload.delayMs);
+  sendJson(res, 200, { ok: true, runId, ...policy });
+}
+
 function handleStatus(_req, res) {
   const config = getCodexConfigSummary();
   sendJson(res, 200, {
@@ -5601,9 +6993,15 @@ function handleStatus(_req, res) {
     runs: {
       active: Array.from(ACTIVE_CODEX_RUNS.values()).map(publicActiveCodexRun),
       heartbeatIntervalMs: CODEX_HEARTBEAT_INTERVAL_MS,
+      selfCheckMs: CODEX_SELF_CHECK_MS,
       stallWarningMs: CODEX_STALL_WARNING_MS,
+      safeRestartMs: CODEX_SAFE_RESTART_MS,
       stallTimeoutMs: CODEX_STALL_TIMEOUT_MS,
       toolIdleTimeoutMs: CODEX_TOOL_IDLE_TIMEOUT_MS,
+      postToolIdleTimeoutMs: CODEX_POST_TOOL_IDLE_TIMEOUT_MS,
+      watchdogRecoveryLimit: CODEX_WATCHDOG_RECOVERY_LIMIT,
+      interactiveApprovalSupported: false,
+      approvalRecoverySupported: true,
       completedExitGraceMs: CODEX_COMPLETED_EXIT_GRACE_MS,
       providerRetryLimit: CODEX_PROVIDER_RETRY_LIMIT,
       providerRetryDelayMs: CODEX_PROVIDER_RETRY_DELAY_MS
@@ -5663,18 +7061,12 @@ function handleHistoryGet(_req, res, url) {
   }
 
   const limit = clampInteger(url.searchParams.get("limit"), 1, HISTORY_LIMIT, 80);
-  const prompt = url.searchParams.get("prompt") || "";
   const favoriteOnly = url.searchParams.get("favorites") === "1";
   const visibleRecords = favoriteOnly ? records.filter((record) => record.favorite === true) : records;
-  const matches = prompt ? findHistoryMatches(visibleRecords, prompt) : [];
   const favoriteCount = records.filter((record) => record.favorite === true).length;
 
   sendJson(res, 200, {
     records: visibleRecords.slice(0, limit).map((record) => publicHistoryRecord(record, { details: false })),
-    matches: matches.map((item) => publicHistoryRecord(item.record, {
-      details,
-      score: item.score
-    })),
     totalCount: records.length,
     favoriteCount,
     favoriteOnly
@@ -6157,6 +7549,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/run/recover") {
+      await handleRecoverRun(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/run/approval-policy") {
+      await handleApprovalPolicy(req, res);
+      return;
+    }
+
     if (req.method === "GET") {
       serveStatic(req, res, url);
       return;
@@ -6172,6 +7574,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   syncHistoryMirror();
+  syncEngineeringMemoryMirror();
   console.log(`Codex local client running at http://${HOST}:${PORT}`);
 });
 

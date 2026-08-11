@@ -16,15 +16,6 @@
             <p id="codexStatus">检测中</p>
           </div>
         </div>
-        <div class="topbar-actions">
-          <div class="layout-switch" title="切换客户端布局，旧版布局会保留原三列比例">
-            <span>布局</span>
-            <div id="layoutModeControl" class="segment-control layout-mode-control" role="group" aria-label="客户端布局">
-              <button type="button" data-layout-mode="modern" class="active" title="使用新的工作台布局">新布局</button>
-              <button type="button" data-layout-mode="classic" title="切回旧版三列布局">旧版</button>
-            </div>
-          </div>
-        </div>
       </header>
 
       <main class="workspace">
@@ -84,18 +75,20 @@
               <div class="field-label">运行模式</div>
               <div id="modeControl" class="segment-control" role="group" aria-label="运行模式">
                 <button type="button" data-mode="read" title="只允许 Codex 读取和分析文件，不写入本地项目">只读分析</button>
-                <button type="button" data-mode="write" class="active" title="允许 Codex 在当前项目工作区内创建和修改文件">工作区写入</button>
-                <button type="button" data-mode="confirm" title="允许写入工作区；网页客户端不使用 Codex 交互批准，避免任务卡在等待确认">安全写入</button>
+                <button type="button" data-mode="write" class="active" title="取消 Codex 文件沙箱和交互批准，在当前 Windows 进程权限内自动执行">完全执行</button>
+                <button type="button" data-mode="confirm" title="只允许 Codex 在当前项目工作区内创建和修改文件">工作区写入</button>
               </div>
             </div>
             <div class="control-group">
               <div class="field-label">推理强度</div>
               <div id="reasoningControl" class="segment-control reasoning-control" role="group" aria-label="推理强度">
-                <button type="button" data-reasoning="default" class="active" title="自动按问题难度选择低/中/高/极高推理强度">自动</button>
+                <button type="button" data-reasoning="default" class="active" title="自动按问题难度选择低/中/高/极高/最大/超强推理强度">自动</button>
                 <button type="button" data-reasoning="low" title="低推理强度，适合简单修改和快速问答">低</button>
                 <button type="button" data-reasoning="medium" title="中等推理强度，适合常规代码维护">中</button>
                 <button type="button" data-reasoning="high" title="高推理强度，适合复杂排查、联动分析和较大改动">高</button>
                 <button type="button" data-reasoning="xhigh" title="极高推理强度，适合复杂架构和高风险维护，耗时更长">极高</button>
+                <button type="button" data-reasoning="max" title="最大推理深度，适合最困难的问题和大型跨模块排查">最大</button>
+                <button type="button" data-reasoning="ultra" title="最大推理并自动委派子任务，适合可并行拆分的复杂长链路工程任务">超强</button>
               </div>
             </div>
             <label class="field-label" for="modelSelect">模型</label>
@@ -107,10 +100,12 @@
             </div>
             <input id="modelInput" class="custom-model-input" type="text" spellcheck="false" autocomplete="off" placeholder="自定义模型名" title="手动输入模型 ID，仅在模型下拉选择“自定义模型”时生效">
             <div class="option-grid">
-              <label class="check-tile" title="运行 Codex 时启用联网搜索能力"><input id="webSearchToggle" type="checkbox">联网搜索</label>
-              <label class="check-tile" title="使用临时 Codex 会话，不复用上一轮 CLI 会话状态"><input id="ephemeralToggle" type="checkbox">临时会话</label>
-              <label class="check-tile" title="同一项目内遇到完全相同指令时，优先展示已保存历史结果"><input id="autoReuseToggle" type="checkbox" checked>同目录相同指令复用</label>
-              <label class="check-tile" title="把本地客户端维护记录注入 Codex 上下文，便于后续直接升级客户端"><input id="maintenanceContextToggle" type="checkbox" checked>客户端维护上下文</label>
+              <label class="check-tile" title="检测到异常授权等待时显示提醒，并在倒计时结束后以完全权限携带现场状态恢复一次"><input id="autoApprovalToggle" type="checkbox" checked>授权等待自动处理</label>
+              <label class="number-tile" for="autoApprovalDelay" title="自动处理授权等待前保留的人工操作时间">
+                <span>授权等待</span>
+                <input id="autoApprovalDelay" type="number" min="3" max="120" step="1" value="10" inputmode="numeric">
+                <span>秒</span>
+              </label>
             </div>
           </section>
 
@@ -141,32 +136,6 @@
             </div>
           </section>
 
-          <section class="input-section document-block resizable-y collapsible-section" data-input-height="document" data-collapsible-section="document">
-            <div class="section-head">
-              <div class="section-head-copy">
-                <strong>文档阅读</strong>
-                <span id="documentStatus">支持 PDF / Word / Excel</span>
-              </div>
-              <button class="icon-button collapse-button" type="button" data-section-collapse="document" data-collapse-label="文档阅读" aria-expanded="true" aria-label="折叠文档阅读" title="折叠文档阅读">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-              </button>
-            </div>
-            <label class="field-label" for="documentPath">文档路径</label>
-            <div class="document-row">
-              <input id="documentPath" type="text" spellcheck="false" autocomplete="off" placeholder="PDF、docx、xlsx 文件路径，支持相对当前工作目录" title="输入 PDF、Word 或 Excel 文件路径">
-              <button id="documentReadButton" type="button" title="读取文档内容">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z"/></svg>
-                读取
-              </button>
-            </div>
-            <div class="document-actions">
-              <button id="documentToPromptButton" class="secondary-button compact-button" type="button" disabled title="把已读取的文档内容追加到当前指令">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-                加入指令
-              </button>
-            </div>
-            <pre id="documentOutput" class="document-output">未读取文档</pre>
-          </section>
           <div class="prompt-workbench">
           <textarea id="promptInput" class="prompt-box resizable-y" data-input-height="prompt" spellcheck="false" title="输入要交给 Codex 的维护、分析或代码修改指令" placeholder="在这里输入指令，Ctrl + Enter 运行"></textarea>
             <div class="prompt-actions">
@@ -301,8 +270,8 @@
             </div>
             <div class="codesys-paths">
               <label>
-                <span class="field-label" for="codesysProjectPath">工程路径</span>
-                <input id="codesysProjectPath" type="text" spellcheck="false" autocomplete="off" title="当前 CODESYS project 文件路径">
+                <span class="field-label" for="codesysProjectDirectory">工程文件夹</span>
+                <input id="codesysProjectDirectory" type="text" spellcheck="false" autocomplete="off" title="输入包含 .project 工程文件的文件夹路径，按回车读取">
               </label>
               <label>
                 <span class="field-label" for="codesysExportPath">XML路径</span>
@@ -314,9 +283,9 @@
               </label>
             </div>
             <div class="codesys-project-switch">
-              <label class="field-label" for="codesysProjectSelect">同目录工程</label>
-              <select id="codesysProjectSelect" autocomplete="off" title="切换当前工程目录下的其他 .project 文件"></select>
-              <button id="codesysRefreshProjectsButton" type="button" title="刷新同目录工程列表">刷新工程</button>
+              <label class="field-label" for="codesysProjectSelect">工程文件</label>
+              <select id="codesysProjectSelect" autocomplete="off" title="切换工程文件夹内的 .project 工程文件"></select>
+              <button id="codesysRefreshProjectsButton" type="button" title="读取工程文件夹内的 .project 文件">读取文件夹</button>
               <span id="codesysProjectSwitchStatus">未读取</span>
             </div>
             <div class="codesys-actions codesys-primary-actions">
@@ -452,6 +421,18 @@
               <div>
                 <strong id="thinkingTitle">等待指令</strong>
                 <span id="thinkingDetail">运行后会显示可见推理摘要、执行过程和状态提示</span>
+              </div>
+            </div>
+
+            <div id="approvalPrompt" class="approval-prompt" hidden aria-live="assertive">
+              <div class="approval-copy">
+                <strong id="approvalTitle">任务等待授权</strong>
+                <span id="approvalDetail">客户端正在等待你的选择</span>
+                <span id="approvalCountdown"></span>
+              </div>
+              <div class="approval-actions">
+                <button id="approveRecoveryButton" type="button" title="终止当前等待进程，并以完全权限携带现场状态恢复一次">允许并恢复</button>
+                <button id="approvalStopButton" type="button" class="secondary-button" title="停止当前任务">停止</button>
               </div>
             </div>
 

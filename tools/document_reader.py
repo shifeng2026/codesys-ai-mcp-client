@@ -14,6 +14,14 @@ SHEET_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 PKG_REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 DC_NS = "{http://purl.org/dc/elements/1.1/}"
+VISUAL_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
 def emit(payload: dict, code: int = 0) -> int:
@@ -73,7 +81,103 @@ def core_title(root: zipfile.ZipFile, fallback: str) -> str:
     return fallback
 
 
-def read_pdf(path: str, max_chars: int) -> dict:
+def render_pdf_visual_pages(
+    path: str,
+    output_dir: str,
+    max_pages: int,
+    render_dpi: int,
+) -> tuple[list[dict], int, str]:
+    if not output_dir or max_pages <= 0:
+        return [], 0, ""
+    try:
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
+    except ImportError:
+        return [], 0, "PDF visual rendering requires PyMuPDF"
+
+    os.makedirs(output_dir, exist_ok=True)
+    rendered: list[dict] = []
+    candidates: list[dict] = []
+    try:
+        with fitz.open(path) as document:
+            for page_index in range(document.page_count):
+                page = document.load_page(page_index)
+                try:
+                    text_chars = len(clean_text(page.get_text("text") or ""))
+                except Exception:
+                    text_chars = 0
+                try:
+                    image_count = len(page.get_images(full=True))
+                except Exception:
+                    image_count = 0
+                try:
+                    drawing_count = len(page.get_drawings())
+                except Exception:
+                    drawing_count = 0
+                if image_count or drawing_count >= 4:
+                    candidates.append({
+                        "page": page_index + 1,
+                        "textCharacters": text_chars,
+                        "images": image_count,
+                        "drawings": drawing_count,
+                    })
+
+            scale = max(1.0, min(3.0, render_dpi / 72.0))
+            for candidate in candidates[:max_pages]:
+                page_number = candidate["page"]
+                target = os.path.join(output_dir, f"page-{page_number:04d}.png")
+                if not os.path.isfile(target) or os.path.getsize(target) == 0:
+                    page = document.load_page(page_number - 1)
+                    pixmap = page.get_pixmap(
+                        matrix=fitz.Matrix(scale, scale),
+                        alpha=False,
+                        colorspace=fitz.csRGB,
+                    )
+                    pixmap.save(target)
+                rendered.append({**candidate, "filePath": os.path.abspath(target)})
+    except Exception as exc:
+        return rendered, len(candidates), str(exc)
+    return rendered, len(candidates), ""
+
+
+def extract_zip_visuals(
+    archive: zipfile.ZipFile,
+    prefix: str,
+    output_dir: str,
+    max_images: int,
+) -> list[dict]:
+    if not output_dir or max_images <= 0:
+        return []
+    os.makedirs(output_dir, exist_ok=True)
+    visuals: list[dict] = []
+    for member in sorted(archive.namelist()):
+        normalized = member.replace("\\", "/")
+        extension = os.path.splitext(normalized)[1].lower()
+        if not normalized.startswith(prefix) or extension not in VISUAL_IMAGE_EXTENSIONS:
+            continue
+        target_name = re.sub(r"[^A-Za-z0-9._-]+", "-", os.path.basename(normalized))
+        target = os.path.join(output_dir, f"{len(visuals) + 1:03d}-{target_name}")
+        if not os.path.isfile(target) or os.path.getsize(target) == 0:
+            with archive.open(member) as source, open(target, "wb") as destination:
+                destination.write(source.read())
+        visuals.append({
+            "source": normalized,
+            "filePath": os.path.abspath(target),
+        })
+        if len(visuals) >= max_images:
+            break
+    return visuals
+
+
+def read_pdf(
+    path: str,
+    max_chars: int,
+    visual_dir: str = "",
+    max_visual_pages: int = 0,
+    render_dpi: int = 144,
+) -> dict:
     try:
         try:
             from pypdf import PdfReader
@@ -102,10 +206,23 @@ def read_pdf(path: str, max_chars: int) -> dict:
             pages.append(f"[Page {index}]\n{page_text}")
 
     text = "\n\n".join(pages)
-    summary = f"PDF document, {total_pages} pages, {pages_with_text} pages with extractable text"
+    visual_pages, visual_candidate_pages, visual_error = render_pdf_visual_pages(
+        path,
+        visual_dir,
+        max_visual_pages,
+        render_dpi,
+    )
+    summary = (
+        f"PDF document, {total_pages} pages, {pages_with_text} pages with extractable text, "
+        f"{visual_candidate_pages} pages with images or vector drawings"
+    )
     return finish("pdf", path, os.path.basename(path), summary, text, max_chars, {
         "pages": total_pages,
         "pagesWithText": pages_with_text,
+        "visualCandidatePages": visual_candidate_pages,
+        "visualPages": visual_pages,
+        "visualPagesLimited": visual_candidate_pages > len(visual_pages),
+        "visualError": visual_error,
     })
 
 
@@ -121,7 +238,7 @@ def paragraph_text(paragraph: ET.Element) -> str:
     return clean_text("".join(fragments))
 
 
-def read_docx(path: str, max_chars: int) -> dict:
+def read_docx(path: str, max_chars: int, visual_dir: str = "", max_visual_pages: int = 0) -> dict:
     with zipfile.ZipFile(path) as docx:
         root = zip_xml(docx, "word/document.xml")
         if root is None:
@@ -129,11 +246,13 @@ def read_docx(path: str, max_chars: int) -> dict:
         title = core_title(docx, os.path.basename(path))
         paragraphs = [paragraph_text(node) for node in root.iter(f"{WORD_NS}p")]
         paragraphs = [item for item in paragraphs if item]
+        visual_assets = extract_zip_visuals(docx, "word/media/", visual_dir, max_visual_pages)
 
     text = "\n\n".join(paragraphs)
     summary = f"Word document, {len(paragraphs)} text paragraphs"
     return finish("docx", path, title, summary, text, max_chars, {
         "paragraphs": len(paragraphs),
+        "visualAssets": visual_assets,
     })
 
 
@@ -215,11 +334,12 @@ def cell_text(cell: ET.Element, strings: list[str]) -> str:
     return raw
 
 
-def read_xlsx(path: str, max_chars: int) -> dict:
+def read_xlsx(path: str, max_chars: int, visual_dir: str = "", max_visual_pages: int = 0) -> dict:
     with zipfile.ZipFile(path) as book:
         title = core_title(book, os.path.basename(path))
         strings = shared_strings(book)
         sheets = workbook_sheets(book)
+        visual_assets = extract_zip_visuals(book, "xl/media/", visual_dir, max_visual_pages)
         sections: list[str] = []
         row_count = 0
         cell_count = 0
@@ -251,6 +371,7 @@ def read_xlsx(path: str, max_chars: int) -> dict:
         "sheets": len(sheets),
         "rows": row_count,
         "cells": cell_count,
+        "visualAssets": visual_assets,
     })
 
 
@@ -269,14 +390,20 @@ def read_text(path: str, max_chars: int) -> dict:
     return finish("text", path, os.path.basename(path), "Text document", data, max_chars, {})
 
 
-def read_document(path: str, max_chars: int) -> dict:
+def read_document(
+    path: str,
+    max_chars: int,
+    visual_dir: str = "",
+    max_visual_pages: int = 0,
+    render_dpi: int = 144,
+) -> dict:
     extension = os.path.splitext(path)[1].lower()
     if extension == ".pdf":
-        return read_pdf(path, max_chars)
+        return read_pdf(path, max_chars, visual_dir, max_visual_pages, render_dpi)
     if extension in (".docx", ".docm"):
-        return read_docx(path, max_chars)
+        return read_docx(path, max_chars, visual_dir, max_visual_pages)
     if extension in (".xlsx", ".xlsm"):
-        return read_xlsx(path, max_chars)
+        return read_xlsx(path, max_chars, visual_dir, max_visual_pages)
     if extension in (".txt", ".md", ".csv", ".log"):
         return read_text(path, max_chars)
     if extension in (".doc", ".xls"):
@@ -287,6 +414,9 @@ def read_document(path: str, max_chars: int) -> dict:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Read PDF, Word, and Excel documents as JSON text previews.")
     parser.add_argument("--max-chars", type=int, default=120000)
+    parser.add_argument("--visual-dir", default="")
+    parser.add_argument("--max-visual-pages", type=int, default=0)
+    parser.add_argument("--render-dpi", type=int, default=144)
     parser.add_argument("file_path")
     args = parser.parse_args(argv)
 
@@ -295,10 +425,17 @@ def main(argv: list[str]) -> int:
         return fail(f"File not found: {path}")
 
     try:
-        return emit(read_document(path, args.max_chars), 0)
+        return emit(read_document(
+            path,
+            args.max_chars,
+            os.path.abspath(args.visual_dir) if args.visual_dir else "",
+            max(0, args.max_visual_pages),
+            max(96, min(216, args.render_dpi)),
+        ), 0)
     except Exception as exc:
         return fail(str(exc))
 
 
 if __name__ == "__main__":
+    configure_stdio()
     raise SystemExit(main(sys.argv[1:]))
