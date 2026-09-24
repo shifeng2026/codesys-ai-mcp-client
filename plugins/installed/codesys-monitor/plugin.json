@@ -1,0 +1,58 @@
+{
+  "id": "codesys-monitor",
+  "name": "CODESYS 工作台",
+  "version": "1.1.0",
+  "entry": "builtin",
+  "permissions": [
+    "screen.read",
+    "process.spawn.codesys-scriptengine"
+  ],
+  "capabilities": [
+    "codesys.window.read",
+    "codesys.screen.monitor",
+    "codesys.scriptengine.offline",
+    "codesys.online.authorized"
+  ],
+  "scriptEngine": {
+    "mode": "offline-allowlist",
+    "allowedActions": [
+      "doctor",
+      "probe",
+      "capabilities",
+      "bind-project",
+      "inspect-project",
+      "update-text",
+      "build",
+      "rebuild",
+      "diff",
+      "rollback"
+    ],
+    "arbitraryScript": false,
+    "onlineActions": {
+      "enabled": true,
+      "requiresWorkbenchAuthorization": true,
+      "grantable": [
+        "login",
+        "logout",
+        "download",
+        "online-change",
+        "write-variable",
+        "start",
+        "stop",
+        "reset",
+        "force"
+      ],
+      "hardGated": [
+        "write-variable",
+        "reset",
+        "force"
+      ],
+      "unsupported": [
+        "debug",
+        "breakpoint",
+        "step"
+      ]
+    }
+  },
+  "description": "CODESYS 实时屏幕监视、低信任视觉、受限 ScriptEngine 离线自动化，以及需工作台显式授权的在线登录/断开/下载"
+}

@@ -1,0 +1,10 @@
+{
+  "id": "dsh-genui",
+  "name": "DSH GenUI",
+  "version": "0.8.6",
+  "entry": "harness-renderer",
+  "protected": true,
+  "capabilities": ["tool/service-only", "agent.output.render", "card.render"],
+  "ui": { "kind": "tool/service-only", "visible": false },
+  "description": "Harness Agent 结构化输出、卡片和 UI 渲染后台插件"
+}

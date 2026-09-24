@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "repositories": {
+    "taskhive-plc-experts": {
+      "id": "taskhive-plc-experts",
+      "name": "TaskHive PLC Expert Team",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-plc-experts@1.0.0",
+      "manifestHash": "b68420d3bf2289fee7e59c7af40a49c2dcac55dbb0e3be47d439b439729d4721",
+      "state": "enabled",
+      "installedAt": "2026-08-23T00:00:00.000Z"
+    }
+  }
+}

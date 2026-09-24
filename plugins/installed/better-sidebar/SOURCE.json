@@ -1,0 +1,12 @@
+{
+  "id": "dsh-better-sidebar",
+  "name": "dsh-better-sidebar",
+  "version": "0.12.3",
+  "license": "MIT",
+  "repository": "https://github.com/omdsh-dev/DSH-better-sidebar",
+  "tarball": "https://registry.npmjs.org/dsh-better-sidebar/-/dsh-better-sidebar-0.12.3.tgz",
+  "integrity": "sha512-ui+ouxw81TOZxZOZI41EuGcqXSzmkmT0bQmzt5hQl9lRqnKN5nIKJ/Qtm8h3nbBL7wU+c3tR1N57Vm4C+zN/LQ==",
+  "runtimePath": "third_party/deepseek-harness-runtime/node_modules/dsh-better-sidebar",
+  "auditedAt": "2026-08-17T00:00:00.000Z"
+}
+

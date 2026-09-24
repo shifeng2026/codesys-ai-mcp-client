@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "generator": {
+    "name": "taskhive-harness-slot-closure",
+    "version": "1.0.0"
+  },
+  "slot": {
+    "path": ".",
+    "payloadPath": "payload"
+  },
+  "closure": {
+    "algorithm": "taskhive-slot-closure-v3-final-path-links",
+    "description": "sha256 over the sorted \"F/D/L/O\" row encoding (NUL-separated, LF-terminated; files contribute size plus their own streamed sha256, links contribute their normalized target) of every entry in the slot tree, relative paths POSIX, sorted by path, excluding manifest.json, closure.json, sbom.cdx.json, IMMUTABLE.",
+    "supersedes": {
+      "algorithm": "taskhive-harness-closure-v2-final-path-links",
+      "reproducibleInThisCheckout": false,
+      "note": "New, independently defined algorithm. It SUPERSEDES taskhive-harness-closure-v2-final-path-links but does NOT reproduce it: the v2 generator is absent from this checkout, its row encoding and exclusion set are unknown, and no value produced by this tool may be presented as, or substituted for, a v2 closure of the same tree."
+    },
+    "excludedPaths": [
+      "manifest.json",
+      "closure.json",
+      "sbom.cdx.json",
+      "IMMUTABLE"
+    ],
+    "sha256": "23ea46a3c6e4b9091b0c801cb62f7088915cdbddc624a043cc05a200c4d3013d"
+  },
+  "payload": {
+    "path": "payload",
+    "algorithm": "taskhive-payload-content-graph-v1",
+    "description": "Same row encoding and sort order as the slot closure digest, rooted at <slot>/payload; excludes nothing.",
+    "sha256": "1c4eb82e9d4a70086862e4d011ae71d2ad35d6274863ad1ea7498b50df77e239",
+    "fileCount": 31767,
+    "totalBytes": 244208915,
+    "linkCount": 2504,
+    "dirCount": 5464,
+    "otherCount": 0
+  },
+  "sbom": {
+    "path": "sbom.cdx.json",
+    "format": "CycloneDX",
+    "specVersion": "1.6",
+    "sha256": "007b7319c84c3966068bdd52b1b0b8b347d2c15d00b3060640964c2cfb299673",
+    "serialNumber": "urn:uuid:23ea46a3-c6e4-4909-9b0c-801cb62f7088",
+    "componentCount": 618,
+    "timestamp": "2026-09-08T04:04:31Z"
+  },
+  "dsh": {
+    "name": "@deepseek-ai/dsh",
+    "version": "0.1.3-alpha.2"
+  }
+}

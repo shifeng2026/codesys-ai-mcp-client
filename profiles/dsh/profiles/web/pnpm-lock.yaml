@@ -1,0 +1,19 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      dsh-better-sidebar:
+        specifier: link:../../../../plugins/installed/better-sidebar
+        version: link:../../../../plugins/installed/better-sidebar
+      taskhive-codex-model:
+        specifier: link:../../../../plugins/installed/taskhive-codex-model
+        version: link:../../../../plugins/installed/taskhive-codex-model
+      taskhive-surfaces:
+        specifier: link:../../../../plugins/installed/taskhive-surfaces
+        version: link:../../../../plugins/installed/taskhive-surfaces

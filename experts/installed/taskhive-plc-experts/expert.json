@@ -1,0 +1,12 @@
+{
+  "id": "taskhive-plc-experts",
+  "name": "TaskHive PLC Expert Team",
+  "version": "1.0.0",
+  "entry": "../../experts.json",
+  "agentLoop": "Harness/DSH",
+  "safety": {
+    "realDeviceWrite": false,
+    "onlineChange": false,
+    "motion": false
+  }
+}

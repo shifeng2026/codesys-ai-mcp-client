@@ -1,0 +1,9 @@
+{
+  "id": "web-ai",
+  "name": "浏览器",
+  "version": "1.0.0",
+  "entry": "central-surface",
+  "capabilities": ["hybrid", "web-ai.chat"],
+  "ui": { "kind": "surface", "surface": "web-ai", "visible": true, "defaultPlacement": "left", "allowedPlacements": ["left", "right", "hidden"] },
+  "description": "中央工作区内的多网页 AI 浏览器"
+}

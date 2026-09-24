@@ -1,13 +1,28 @@
 {
-  "name": "codex-local-client",
-  "version": "0.1.0",
+  "name": "taskhive-1.0-mvp",
+  "version": "1.1.0",
   "private": true,
-  "description": "Local Chinese web client for Codex CLI.",
-  "main": "server.js",
+  "description": "Harness-first TaskHive 1.1 client",
+  "main": "app/main.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "electron .",
+    "start:dev": "electron .",
+    "clean:release": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/clean-release.ps1",
+    "clean:release:apply": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/clean-release.ps1 -Apply",
+    "test": "node tests/run-contracts.js",
+    "test:codesys-launch": "node tests/codesys-launch.js",
+    "test:codesys-capture": "node tests/codesys-capture-contract.js",
+    "test:codesys-window-ownership": "node tests/codesys-window-ownership.js",
+    "test:codesys-window-fit": "node tests/codesys-window-fit-contract.js",
+    "test:codesys-current-project": "node tests/codesys-current-project.js",
+    "test:codesys-active-project": "node tests/codesys-active-project-contract.js",
+    "test:terminal-shell": "node tests/terminal-shell-contract.js",
+    "test:portable-links": "node app/portable-links.js",
+    "modlens:version": "node plugins/installed/modlens/dist/main.js --version",
+    "modlens:doctor": "node plugins/installed/modlens/dist/main.js doctor --json"
   },
-  "engines": {
-    "node": ">=18"
+  "devDependencies": {
+    "electron": "43.4.0",
+    "electron-builder": "^26.0.12"
   }
 }

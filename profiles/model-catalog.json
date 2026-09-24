@@ -1,0 +1,138 @@
+{
+  "version": 2,
+  "directory": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\models",
+  "defaultRoute": {
+    "providerId": "codex-cli",
+    "modelId": "gpt-5.5"
+  },
+  "browserRoute": {
+    "providerId": "web-ai",
+    "modelId": "deepseek-web"
+  },
+  "visibility": {
+    "codex-cli::gpt-6-astra": true,
+    "codex-cli::gpt-5.6-sol": true,
+    "codex-cli::gpt-5.6-terra": true,
+    "codex-cli::gpt-5.6-luna": false,
+    "codex-cli::gpt-5.5": true,
+    "ollama-local::qwen2.5-coder": false,
+    "ollama-local::deepseek-coder-v2": false,
+    "claude-code::opus": true,
+    "claude-code::sonnet": true,
+    "claude-code::haiku": true,
+    "web-ai::deepseek-web": false,
+    "web-ai::kimi-web": false,
+    "web-ai::doubao-web": false,
+    "web-ai::yuanbao-web": false,
+    "web-ai::qwen-web": false,
+    "web-ai::chatgpt-web": false,
+    "web-ai::claude-web": false,
+    "web-ai::gemini-web": false,
+    "modlens-vision::codex-vision-bridge": true,
+    "video-local::video-generation-local": true,
+    "anthropic-api::claude-sonnet-4-5": true,
+    "anthropic-api::claude-opus-4-1": false,
+    "anthropic-api::claude-haiku-4-5": false
+  },
+  "providers": [
+    {
+      "id": "codex-cli",
+      "name": "Codex CLI",
+      "kind": "codex-cli",
+      "state": "ready",
+      "authentication": "codex-login",
+      "custom": false,
+      "contextWindow": 272000,
+      "models": [
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5"
+      ]
+    },
+    {
+      "id": "ollama-local",
+      "name": "Ollama 本地",
+      "kind": "local",
+      "state": "unconfigured",
+      "authentication": "local-runtime",
+      "custom": false,
+      "models": [
+        "qwen2.5-coder",
+        "deepseek-coder-v2"
+      ]
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "kind": "cli",
+      "state": "unconfigured",
+      "authentication": "claude-login",
+      "custom": false,
+      "contextWindow": 200000,
+      "models": [
+        "opus",
+        "sonnet",
+        "haiku"
+      ]
+    },
+    {
+      "id": "web-ai",
+      "name": "网页 AI",
+      "kind": "web",
+      "state": "unconfigured",
+      "authentication": "user-managed-browser-session",
+      "custom": false,
+      "contextWindow": 64000,
+      "models": [
+        "deepseek-web",
+        "kimi-web",
+        "doubao-web",
+        "yuanbao-web",
+        "qwen-web",
+        "chatgpt-web",
+        "claude-web",
+        "gemini-web"
+      ]
+    },
+    {
+      "id": "modlens-vision",
+      "name": "ModLens 视觉",
+      "kind": "vision",
+      "state": "unconfigured",
+      "models": [
+        "codex-vision-bridge"
+      ],
+      "custom": false,
+      "authentication": "local-cli"
+    },
+    {
+      "id": "video-local",
+      "name": "本地视频模型",
+      "kind": "video",
+      "state": "unconfigured",
+      "models": [
+        "video-generation-local"
+      ],
+      "custom": false,
+      "authentication": "local-cli"
+    },
+    {
+      "id": "anthropic-api",
+      "name": "Anthropic API",
+      "kind": "api",
+      "state": "unconfigured",
+      "authentication": "api-key",
+      "protocol": "anthropic",
+      "endpoint": "https://api.anthropic.com",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "models": [
+        "claude-sonnet-4-5",
+        "claude-opus-4-1",
+        "claude-haiku-4-5"
+      ],
+      "custom": false
+    }
+  ]
+}

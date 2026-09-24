@@ -1,42 +1,25 @@
-# Runtime state and local credentials
-.git/
-_git-upload/
-_github_known_hosts
-.codex-runtime/
-.codex-runtime-watchdog-test/
-**/.sandbox-secrets/
-auth.json
-**/auth.json
-*.key
-*.pem
-*.p12
-*.pfx
-.env
-.env.*
-
-# Local Codex history and logs
-codex-history.json
-launcher.log
-*.log
-logs/
-logs-snapshot/
-
-# Generated packages and build/runtime output
-portable-packages/
+# ---------------------------------------------------------------------------
+# TaskHive / CODESYS AI MCP Client
+# 依赖与运行期数据：体积大、可由 pnpm install 重建，或属于本机运行痕迹
+# ---------------------------------------------------------------------------
 node_modules/
-dist/
-build/
-out/
+workspaces/
+cache/
+logs/
 
-# Language caches
-__pycache__/
-*.pyc
-*.pyo
-*.sqlite
-*.sqlite-*
+# 平台运行时二进制（完整可运行包请从 Releases 下载）
+*.exe
+*.dll
+*.pak
+*.bin
+*.dat
 
-# OS/editor noise
+# 仓库维护用暂存目录
+.gh-deploy/
+.repo-stage/
+
+# 系统与编辑器文件
 Thumbs.db
 .DS_Store
-.vscode/
-.idea/
+*.log
+*.tmp

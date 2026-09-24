@@ -1,0 +1,16 @@
+{
+  "name": "taskhive-codex-model",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dsh/index.js",
+  "exports": {
+    ".": "./dsh/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

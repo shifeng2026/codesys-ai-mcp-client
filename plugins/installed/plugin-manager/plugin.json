@@ -1,0 +1,9 @@
+{
+  "id": "plugin-manager",
+  "name": "插件管理",
+  "version": "1.0.0",
+  "entry": "central-surface",
+  "capabilities": ["surface", "plugin.lifecycle"],
+  "ui": { "kind": "surface", "surface": "packages", "visible": true, "defaultPlacement": "left", "allowedPlacements": ["left", "right", "hidden"] },
+  "description": "插件、知识库和专家仓库生命周期管理"
+}

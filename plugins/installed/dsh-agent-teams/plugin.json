@@ -1,0 +1,10 @@
+{
+  "id": "dsh-agent-teams",
+  "name": "DSH Agent Teams",
+  "version": "0.1.6",
+  "entry": "harness-agent-teams",
+  "protected": true,
+  "capabilities": ["tool/service-only", "expert.agent-teams"],
+  "ui": { "kind": "tool/service-only", "visible": false },
+  "description": "Harness 专家团队调度后台内核"
+}

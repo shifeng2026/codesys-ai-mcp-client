@@ -1,0 +1,23 @@
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+
+const root = path.resolve(__dirname, '..')
+const model = fs.readFileSync(path.join(root, 'plugins/installed/taskhive-codex-model/dsh/index.js'), 'utf8')
+const client = fs.readFileSync(path.join(root, 'plugins/installed/taskhive-surfaces/dsh/client.js'), 'utf8')
+const main = fs.readFileSync(path.join(root, 'app/main.js'), 'utf8')
+
+assert(model.includes('const PROMPT_BUDGET'))
+assert(model.includes('recentMessageChars: 28000'))
+assert(model.includes('historySummaryChars: 4500'))
+assert(model.includes('slice(-8)'))
+assert(model.includes('taskhive-codesys-context'))
+assert(model.includes('CODESYS TEMPORARY TASK CONTEXT'))
+assert(!model.includes('slice(-32).map((message)'))
+assert(client.includes('const maxChars = 28000'))
+assert(client.includes('modelContext: snapshot'))
+assert(!client.includes('<codesys-project-snapshot selection="compact"'))
+assert(main.includes("const modelContextPath = path.join(jobRoot, 'model-context.json');"))
+assert(main.includes('modelContextPath: modelContext ? modelContextPath :'))
+
+console.log('context budget contract passed')

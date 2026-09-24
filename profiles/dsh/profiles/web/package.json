@@ -1,0 +1,18 @@
+{
+    "name":  "dsh-profile-web",
+    "private":  true,
+    "dependencies":  {
+                         "dsh-better-sidebar":  "link:../../../../plugins/installed/better-sidebar",
+                         "taskhive-codex-model":  "link:../../../../plugins/installed/taskhive-codex-model",
+                         "taskhive-surfaces":  "link:../../../../plugins/installed/taskhive-surfaces"
+                     },
+    "dsh":  {
+                "profile":  {
+                                "bundles":  [
+                                                "@deepseek-ai/dsh-base",
+                                                "@deepseek-ai/dsh-web-app",
+                                                "taskhive-codex-model"
+                                            ]
+                            }
+            }
+}

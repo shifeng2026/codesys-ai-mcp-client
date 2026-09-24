@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="TaskHive">
+  <defs>
+    <linearGradient id="taskhive-v3" x1="36" y1="28" x2="220" y2="228" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7168F6"/>
+      <stop offset="1" stop-color="#3188EB"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#taskhive-v3)"/>
+  <path fill="#fff" d="M75 67h28v47h50V67h28v122h-28v-48h-50v48H75z"/>
+  <path fill="url(#taskhive-v3)" d="m128 112 14 8v16l-14 8-14-8v-16z"/>
+</svg>

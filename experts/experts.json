@@ -1,0 +1,348 @@
+{
+  "schemaVersion": 3,
+  "selectedTeamId": "plc-electrical-team-ae87649983",
+  "teamEnabled": true,
+  "teams": [
+    {
+      "id": "plc-electrical-team-ae87649983",
+      "name": "PLC 电气专家团队",
+      "members": [
+        {
+          "expertId": "plc-electrical-team-ae87649983-captain",
+          "harnessRole": "master",
+          "teamRole": "captain"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-codesys",
+          "harnessRole": "worker",
+          "teamRole": "member"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-protocol",
+          "harnessRole": "worker",
+          "teamRole": "member"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-host",
+          "harnessRole": "worker",
+          "teamRole": "member"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-electrical",
+          "harnessRole": "worker",
+          "teamRole": "member"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-reviewer",
+          "harnessRole": "reviewer",
+          "teamRole": "member"
+        },
+        {
+          "expertId": "plc-electrical-team-ae87649983-fallback",
+          "harnessRole": "fallback",
+          "teamRole": "member"
+        }
+      ],
+      "expertIds": [
+        "plc-electrical-team-ae87649983-captain",
+        "plc-electrical-team-ae87649983-codesys",
+        "plc-electrical-team-ae87649983-protocol",
+        "plc-electrical-team-ae87649983-host",
+        "plc-electrical-team-ae87649983-electrical",
+        "plc-electrical-team-ae87649983-reviewer",
+        "plc-electrical-team-ae87649983-fallback"
+      ],
+      "primaryExpertId": "plc-electrical-team-ae87649983-captain",
+      "workflow": {
+        "schemaVersion": 2,
+        "domain": "plc-electrical-engineering",
+        "objective": "建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环",
+        "architecture": "deepseek-harness-agent-teams",
+        "safetyPolicy": {
+          "defaultActionLevel": "L0",
+          "realDeviceWrite": false,
+          "onlineChange": false,
+          "motion": false
+        },
+        "knowledge": {
+          "provider": "@lemoncat7/dsh-knowledge",
+          "recallBeforeTask": true,
+          "writeMode": "audit",
+          "reviewerRequired": true,
+          "memoryProviders": [
+            "local",
+            "hindsight"
+          ]
+        },
+        "stages": [
+          {
+            "id": "site-model",
+            "owner": "plc-electrical-team-ae87649983-captain",
+            "dependsOn": []
+          },
+          {
+            "id": "codesys-analysis",
+            "owner": "plc-electrical-team-ae87649983-codesys",
+            "dependsOn": [
+              "site-model"
+            ]
+          },
+          {
+            "id": "interface-contract",
+            "owner": "plc-electrical-team-ae87649983-protocol",
+            "dependsOn": [
+              "site-model"
+            ]
+          },
+          {
+            "id": "host-analysis",
+            "owner": "plc-electrical-team-ae87649983-host",
+            "dependsOn": [
+              "interface-contract"
+            ]
+          },
+          {
+            "id": "electrical-diagnosis",
+            "owner": "plc-electrical-team-ae87649983-electrical",
+            "dependsOn": [
+              "codesys-analysis",
+              "interface-contract"
+            ]
+          },
+          {
+            "id": "safety-review",
+            "owner": "plc-electrical-team-ae87649983-reviewer",
+            "dependsOn": [
+              "host-analysis",
+              "electrical-diagnosis"
+            ]
+          },
+          {
+            "id": "fallback",
+            "owner": "plc-electrical-team-ae87649983-fallback",
+            "dependsOn": [
+              "codesys-analysis",
+              "interface-contract"
+            ],
+            "trigger": "failure-only"
+          },
+          {
+            "id": "experience-candidate",
+            "owner": "plc-electrical-team-ae87649983-captain",
+            "dependsOn": [
+              "safety-review"
+            ],
+            "writeMode": "audit"
+          },
+          {
+            "id": "summary",
+            "owner": "plc-electrical-team-ae87649983-captain",
+            "dependsOn": [
+              "experience-candidate"
+            ]
+          }
+        ]
+      },
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-08-22T10:52:22.175Z"
+    }
+  ],
+  "experts": [
+    {
+      "id": "plc-electrical-team-ae87649983-captain",
+      "name": "PLC 电气总工程师",
+      "role": "建立现场模型，拆解控制链任务，调度各专业并汇总带证据的工程结论",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "",
+      "skills": [
+        "PLC/CODESYS",
+        "控制链建模",
+        "证据组织"
+      ],
+      "tools": [
+        "文件",
+        "CODESYS MCP",
+        "任务 DAG"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "workspace-write",
+      "memoryProvider": "hindsight",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "master",
+      "teamRole": "captain",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:20:57.488Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-codesys",
+      "name": "CODESYS/PLC 专家",
+      "role": "读取 PLC 工程、POU、任务周期、IO、报警和离线编译结果；只在副本中修改",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "",
+      "skills": [
+        "CODESYS",
+        "ST",
+        "PLCopenXML",
+        "离线编译"
+      ],
+      "tools": [
+        "CODESYS MCP",
+        "文件",
+        "Git"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "workspace-write",
+      "memoryProvider": "local",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "worker",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:08.533Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-protocol",
+      "name": "通信与寄存器契约专家",
+      "role": "校验 Modbus TCP/RTU、RS-485/Ethernet 参数、寄存器地址、类型、端序、比例、握手和版本兼容",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-terra",
+      "reasoningEffort": "",
+      "skills": [
+        "Modbus",
+        "RS-485",
+        "寄存器映射",
+        "接口契约"
+      ],
+      "tools": [
+        "文件",
+        "Python 测试",
+        "PLC 模拟器"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "workspace-write",
+      "memoryProvider": "local",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "worker",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:13.642Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-host",
+      "name": "Python 上位机专家",
+      "role": "维护 transport → codec → device → service → API/UI 分层，处理超时、重连、状态同步和幂等",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "",
+      "skills": [
+        "Python",
+        "异步通信",
+        "状态机",
+        "契约测试"
+      ],
+      "tools": [
+        "文件",
+        "终端",
+        "pytest"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "workspace-write",
+      "memoryProvider": "local",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "worker",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:18.504Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-electrical",
+      "name": "电气与 IO 诊断专家",
+      "role": "沿 IO、驱动器、执行器、传感器反馈链核对接线、单位、互锁、限位和故障复位条件",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "",
+      "skills": [
+        "电气工程",
+        "IO",
+        "驱动器",
+        "故障诊断"
+      ],
+      "tools": [
+        "文件",
+        "日志",
+        "只读诊断"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "read-only",
+      "memoryProvider": "hindsight",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "worker",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:31.875Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-reviewer",
+      "name": "安全与证据审核专家",
+      "role": "独立审核事实/假设分离、引用、危险动作门禁、版本影响和回滚；批准后才允许经验候选晋升",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "",
+      "skills": [
+        "安全审计",
+        "证据核验",
+        "L0-L5 动作分级",
+        "经验审核"
+      ],
+      "tools": [
+        "文件",
+        "知识库",
+        "测试结果"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "read-only",
+      "memoryProvider": "hindsight",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "reviewer",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:37.199Z"
+    },
+    {
+      "id": "plc-electrical-team-ae87649983-fallback",
+      "name": "故障接管专家",
+      "role": "仅在主执行节点失败或不可用时接管未完成的只读/离线步骤，不自动重放现场动作",
+      "systemPrompt": "工程目标：建立 PLC/CODESYS 与 Python 上位机的证据驱动诊断和受控变更闭环\n必须按用户指令→Python→通信→PLC 寄存器/变量→PLC 状态机→IO/驱动器→执行器→传感器反馈完整追踪。\n区分项目已验证事实、外部资料和待验证假设；默认只读、离线、副本操作。不得下载、在线变更、启停、复位、强制或写入真实 PLC。\n所有输出包含证据、置信度、缺失信息、验证步骤、停止条件、回滚方法和剩余风险。",
+      "providerId": "codex-cli",
+      "model": "gpt-5.6-sol",
+      "reasoningEffort": "",
+      "skills": [
+        "故障恢复",
+        "离线替代方案",
+        "根因分析"
+      ],
+      "tools": [
+        "文件",
+        "终端",
+        "测试"
+      ],
+      "knowledgeLibraryIds": [],
+      "permissions": "workspace-write",
+      "memoryProvider": "local",
+      "outputFormat": "结论、状态、证据、假设与反证、控制链检查、验证步骤、风险、回滚与人工确认",
+      "harnessRole": "fallback",
+      "teamRole": "member",
+      "createdAt": "2026-08-22T10:52:22.175Z",
+      "updatedAt": "2026-09-14T12:21:41.188Z"
+    }
+  ],
+  "activeExpertIds": [],
+  "activeExpertId": ""
+}

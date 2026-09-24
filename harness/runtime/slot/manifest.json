@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "slotId": "dsh-0.1.3-alpha.2+candidate",
+  "state": "closure-complete-runtime-gates-pending",
+  "status": "candidate",
+  "blockReason": "harness-abi-plugin-compatibility-and-data-migration-gates-not-run",
+  "immutable": true,
+  "promotionEligible": false,
+  "productionEligible": false,
+  "source": {
+    "package": "@deepseek-ai/dsh",
+    "version": "0.1.3-alpha.2",
+    "gitTag": null,
+    "gitCommit": null,
+    "correspondence": "npm-registry-alpha-dist-tag"
+  },
+  "closure": {
+    "algorithm": "taskhive-slot-closure-v3-final-path-links",
+    "sha256": "23ea46a3c6e4b9091b0c801cb62f7088915cdbddc624a043cc05a200c4d3013d",
+    "supersedes": "taskhive-harness-closure-v2-final-path-links",
+    "supersedesReproducibleInThisCheckout": false,
+    "note": "v3 is a NEW, self-contained algorithm defined in resources/app/tools/harness-slot-closure.js and described in slot/closure.json. It replaces v2 because the v2 tool is absent from this checkout and its row encoding and exclusion set are unknown. Do NOT read this digest as the value the original v2 tool would have produced, and do not present it to a consumer that expects a v2 identity.",
+    "generator": "resources/app/tools/harness-slot-closure.js --write",
+    "reverifyWith": "resources/app/tools/harness-slot-closure.js --check",
+    "sourceLockSha256": "c98cc92ef86872b8f282bf43313cb7d1ef5424da5c8ea7c4b223cc46a7c714fe",
+    "packageManifestSha256": "a9cf818b300d35578b135ed746786318537dce49714412bed949fb1d0f3feeeb",
+    "dependencyLockSha256": "c98cc92ef86872b8f282bf43313cb7d1ef5424da5c8ea7c4b223cc46a7c714fe"
+  },
+  "payload": {
+    "path": "payload",
+    "sha256": "1c4eb82e9d4a70086862e4d011ae71d2ad35d6274863ad1ea7498b50df77e239",
+    "fileCount": 31767,
+    "totalBytes": 244208915,
+    "linkCount": 2504,
+    "dirCount": 5464,
+    "installScripts": "disabled",
+    "offlineInstall": true,
+    "measurement": "recounted in place after the T027 Windows patch, then reproduced independently by tools/harness-slot-closure.js. The earlier build-time fileCount/totalBytes did not match the shipped tree.",
+    "contentGraph": {
+      "algorithm": "taskhive-payload-content-graph-v1",
+      "sha256": "1c4eb82e9d4a70086862e4d011ae71d2ad35d6274863ad1ea7498b50df77e239",
+      "note": "Same encoding as the slot closure, rooted at payload/ with no exclusions. This replaces an ad-hoc diagnostic digest recorded during the T043 audit; that value was not reproducible from any well-defined encoding and has been dropped rather than kept alongside a differently-encoded value under the same algorithm name."
+    }
+  },
+  "sbom": {
+    "format": "CycloneDX",
+    "specVersion": "1.6",
+    "path": "sbom.cdx.json",
+    "sha256": "007b7319c84c3966068bdd52b1b0b8b347d2c15d00b3060640964c2cfb299673",
+    "componentCount": 618,
+    "stale": false,
+    "note": "Regenerated from the installed payload. Every component maps to a real package.json on disk; the discovery rule is recorded in sbom.metadata.properties. Structurally validated (bomFormat, specVersion, urn:uuid v4, purl shape, uniqueness, sort order, required fields) but NOT validated against the official CycloneDX 1.6 JSON schema, because no offline validator was available.",
+    "determinism": "The SBOM timestamp is derived from the newest payload mtime (or TASKHIVE_SBOM_TIMESTAMP / --timestamp when set), so repeated --write runs are byte-identical. Re-touching a payload file without changing its content alters only the timestamp, which will fail the --check SBOM item; pin the timestamp before generating a release gate."
+  },
+  "fsExtPatch": {
+    "required": true,
+    "reason": "Upstream dsh-session-persistence-jsonl imports the POSIX-only fs-ext native addon at module scope; the addon is never built on Windows, so the Harness does not boot without this change.",
+    "appliedTo": "@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js (replace the `import { flock } from \"fs-ext\"` statement with an explicit throw)",
+    "selfHealing": "app/main.js repairHarnessRuntimeFsExt() re-applies the edit on every launch, because the change lives in the pnpm store and any `pnpm install` silently reverts it.",
+    "note": "The patch is inside payload/, so it is part of the digests above. A payload edit therefore requires re-running tools/harness-slot-closure.js --write."
+  },
+  "nodeFlags": {
+    "exposeInternals": {
+      "required": true,
+      "reason": "The DSH profile boots its plugin tree through a resolver that depends on Node internals. Without --expose-internals every patch `insert` entry fails with \"Cannot find package '<plugin>' imported from cordis-plugin-loader\", the cordis:include stage aborts, the Harness process exits and the workbench page cannot load. Verified empirically: removing the flag turned a passing smoke into a fatal plugin-tree failure. It also explains why readiness previously took 21-82 s (plugin-tree retries); with the tree loading cleanly it is ~5 s."
+    }
+  },
+  "toolchain": {
+    "node": "v24.18.0",
+    "pnpm": "11.22.0"
+  },
+  "probes": {
+    "frozenDependencyLock": "passed",
+    "finalPathInstall": "passed",
+    "peerDependencies": "passed",
+    "dshCliHelpAtFinalPath": "passed"
+  },
+  "gates": {
+    "sourceReproducibility": "passed",
+    "closure": "passed",
+    "sbom": "passed",
+    "payloadDigest": "passed",
+    "harnessAbi": "not-run",
+    "pluginCompatibility": "not-run",
+    "dataMigrationDryRun": "not-run",
+    "electronSmoke": "passed",
+    "electronSmokeEvidence": "resources/app/logs/electron-smoke.json (ok:true, runtime.state=ready, authUrl acquired, mainAlive=true, splashAlive=false, windows=1) from consecutive `TaskHive.exe --smoke` runs. Readiness dropped from the historical 21-82 s to ~5-14 s once the plugin tree stopped failing to load.",
+    "promotion": "forbidden-in-m0"
+  },
+  "openItems": [
+    "harnessAbi, pluginCompatibility and dataMigrationDryRun gates have not been run.",
+    "promotion remains forbidden-in-m0.",
+    "The pre-upgrade slot-before-dsh-0.1.3-alpha.2 backup was removed by the T040 release cleanup: it was an incomplete copy of 0.1.0-rc.8 (declared 29121 files / 2457 links, actual 8927 files / 0 links) and could not reproduce that closure.",
+    "IMMUTABLE now holds this slot's v3 closure digest. The previous slot's v2 digest (0bd8dace...) is recorded only in closure.json, because the v2 tool cannot be run here to confirm it.",
+    "CycloneDX 1.6 conformance is structural only, not schema-validated."
+  ]
+}

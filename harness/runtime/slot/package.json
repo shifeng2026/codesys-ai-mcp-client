@@ -1,0 +1,18 @@
+{
+  "name": "@taskhive/harness-runtime-slot",
+  "version": "0.1.3-alpha.2",
+  "private": true,
+  "description": "Reproducible TaskHive candidate closure for DSH 0.1.3-alpha.2",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24.18.0 <25",
+    "pnpm": "11.22.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.3-alpha.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

@@ -1,0 +1,4 @@
+# TaskHive surfaces are registered through the real Better Sidebar service.
+- insert:
+    - id: taskhive-surfaces
+      name: '@taskhive/surfaces'

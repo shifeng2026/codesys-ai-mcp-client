@@ -1,0 +1,4 @@
+# Register the Codex LLM adapter in the single DSH runtime.
+- insert:
+    - id: taskhive-codex-model
+      name: taskhive-codex-model

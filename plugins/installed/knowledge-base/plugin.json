@@ -1,0 +1,9 @@
+{
+  "id": "knowledge-base",
+  "name": "Knowledge Base",
+  "version": "1.0.0",
+  "entry": "central-surface",
+  "capabilities": ["hybrid", "knowledge.cards", "knowledge.sync", "knowledge.writeback"],
+  "ui": { "kind": "surface", "surface": "knowledge", "visible": true, "defaultPlacement": "left", "allowedPlacements": ["left", "right", "hidden"] },
+  "description": "卡片式知识库、审核沉淀和多客户端同步"
+}

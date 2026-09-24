@@ -1,0 +1,14 @@
+{
+    "generatedAt":  "2026-08-27T06:01:41.3989187Z",
+    "artifact":  "TaskHive.exe",
+    "version":  "1.1.0",
+    "sha256":  "BF0339448252A2BCC6A57F7990E08B2BAC62613FE8A08C32658203D56CD3BFD4",
+    "length":  225508864,
+    "runtime":  "local electron",
+    "appRoot":  "resources/app",
+    "icon":  "taskhive-icon-v3",
+    "iconVerified":  true,
+    "iconEvidence":  "build-time pixel comparison",
+    "linkCount":  0,
+    "explorerCopyable":  true
+}

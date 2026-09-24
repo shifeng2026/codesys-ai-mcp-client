@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "repositories": {
+    "taskhive-core": {
+      "id": "taskhive-core",
+      "name": "TaskHive Core Safety Knowledge",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-core@1.0.0",
+      "manifestHash": "51732274dec81fe481e568dd9bef602d2c86db31e29b12bbe01e628a0d72df5a",
+      "state": "enabled",
+      "installedAt": "2026-08-23T00:00:00.000Z"
+    }
+  }
+}

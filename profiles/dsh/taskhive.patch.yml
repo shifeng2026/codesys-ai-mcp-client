@@ -1,0 +1,39 @@
+# TaskHive1.0 model route
+- id: agent-default-model
+  config:
+    provider: codex-cli
+    model: gpt-5.5
+- id: llm-deepseek
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- insert:
+    - id: better-sidebar
+      name: 'dsh-better-sidebar'
+    - id: taskhive-surfaces
+      name: 'taskhive-surfaces'
+    - id: dsh-mnemon
+      name: 'dsh-mnemon'
+      config:
+        routingGuidance: false
+        displayMode: sidebar
+        lifecycleEnabled: true
+        recallMode: off
+        writebackMode: off
+        idleReviewMs: 30000
+        tabEnabled: true
+        writeEnabled: true
+        remoteAccess: read-only
+        timeoutMs: 10000
+        defaultRecallLimit: 10
+        recallQuality:
+          policy: strict-v1
+          lowScoreThreshold: 0.25
+          highScoreThreshold: 0.6
+          candidateMultiplier: 3
+          maxMediumResults: 4
+          maxUnknownResults: 2
+    - id: distill
+      name: '@loserfox/distill'
+      config:
+        enabled: false

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://127.0.0.1:*; frame-src 'self' http://127.0.0.1:*; object-src 'none'; base-uri 'none'">
+  <title>TaskHive</title>
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./ui-overrides.css">
+</head>
+<body>
+  <main id="app-shell" class="app-shell">
+    <header class="taskhive-topbar">
+      <div class="brand"><img src="../assets/taskhive-icon-v3-32.png" alt="TaskHive"><span>TaskHive</span></div>
+      <div class="topbar-center"><span id="surface-title">主工作台</span><span id="harness-state" class="state-pill">正在启动</span></div>
+      <div class="topbar-actions"><button id="new-task" class="icon-button" title="新任务" aria-label="新任务"><img class="taskhive-control-icon" src="../assets/taskhive-icon-v3-20.png" alt=""></button><button id="settings-shortcut" class="icon-button" title="设置" aria-label="设置"><img class="taskhive-control-icon" src="../assets/taskhive-icon-v3-20.png" alt=""></button></div>
+    </header>
+    <div class="app-layout">
+      <aside id="left-sidebar" class="taskhive-sidebar left-sidebar" aria-label="TaskHive 左侧栏">
+        <div class="sidebar-section-title">工作区</div>
+        <button class="workspace-chip active" type="button"><span class="taskhive-glyph"><img class="taskhive-control-icon" src="../assets/taskhive-icon-v3-20.png" alt=""></span><span>harness-default</span></button>
+        <div class="sidebar-section-title plugin-heading"><span>插件</span><span class="sidebar-hint">拖动排序</span></div>
+        <nav id="left-plugin-nav" class="plugin-nav" aria-label="左侧插件"></nav>
+        <div class="sidebar-footer"><button id="left-settings" class="nav-item settings-item" type="button"><span class="taskhive-glyph"><img class="taskhive-control-icon" src="../assets/taskhive-icon-v3-20.png" alt=""></span><span>设置</span></button></div>
+      </aside>
+      <section id="main-panel" class="main-panel" aria-label="中央 Harness 工作区">
+        <div id="surface" class="workspace"></div>
+      </section>
+      <aside id="right-sidebar" class="taskhive-sidebar right-sidebar" aria-label="TaskHive 右侧栏">
+        <div class="right-sidebar-head"><strong>工具面板</strong><button id="right-collapse" class="icon-button subtle" title="收起右侧栏" aria-label="收起右侧栏">›</button></div>
+        <nav id="right-plugin-nav" class="plugin-nav" aria-label="右侧插件"></nav>
+        <section class="terminal-card" aria-label="终端状态"><div class="terminal-head"><span>终端</span><span id="terminal-state" class="tiny-state">就绪</span></div><pre id="terminal-output">终端已就绪</pre><div class="terminal-row"><input id="terminal-input" placeholder="输入命令…" aria-label="终端命令"><button id="terminal-run" class="primary small-button">执行</button><button id="terminal-stop" class="secondary small-button" disabled>停止</button></div></section>
+      </aside>
+    </div>
+    <div id="activity" class="sr-only" aria-live="polite"></div>
+  </main>
+  <script src="./renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "id": "modlens",
+  "name": "@liustack/modlens",
+  "version": "3.18.1",
+  "license": "MIT",
+  "repository": "https://github.com/liustack/modlens",
+  "tarball": "https://registry.npmjs.org/@liustack/modlens/-/modlens-3.18.1.tgz",
+  "integrity": "sha512-Mn/ZR7H0CkA5ShN29aDLwp6oH6lLz4VpKHyLZmkYnW3v/L5JZbm3JWiCXxy7nvhEGPjxi2QPHmX0lJAx1wJjTg==",
+  "commit": "2b71582435ff34a548efbefb74178ed133659ccb",
+  "runtimePath": "plugins/installed/modlens",
+  "copiedFrom": "C:/Users/29925/TaskHive/plugins/.packages/modlens",
+  "distMainSha256": "28C93235DB7E7C830FE6AB6BB5E3BE074456745DD476CF61F737D127372F8861",
+  "auditedAt": "2026-08-17T00:00:00.000Z",
+  "installedAt": "2026-08-22T16:58:57+08:00"
+}

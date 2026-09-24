@@ -1,0 +1,85 @@
+{
+  "version": 2,
+  "entries": [
+    {
+      "id": "program",
+      "name": "程序本体",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "program",
+      "relativePath": "."
+    },
+    {
+      "id": "plugins",
+      "name": "插件目录",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\plugins",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "plugins"
+    },
+    {
+      "id": "models",
+      "name": "模型目录",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\models",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "models"
+    },
+    {
+      "id": "knowledge",
+      "name": "知识库目录",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\knowledge",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "knowledge"
+    },
+    {
+      "id": "experts",
+      "name": "专家目录",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\experts",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "experts"
+    },
+    {
+      "id": "videoModels",
+      "name": "视频模型",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\video-models",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "video-models"
+    },
+    {
+      "id": "workspaces",
+      "name": "工作区",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\workspaces",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "workspaces"
+    },
+    {
+      "id": "profiles",
+      "name": "配置目录",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\profiles",
+      "gitUrl": "",
+      "builtin": true,
+      "portable": true,
+      "portableScope": "app",
+      "relativePath": "profiles"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "experts",
+  "name": "专家",
+  "version": "1.0.0",
+  "entry": "central-surface",
+  "capabilities": ["hybrid", "expert.agent-teams", "expert.knowledge-recall"],
+  "ui": { "kind": "surface", "surface": "experts", "visible": true, "defaultPlacement": "left", "allowedPlacements": ["left", "right", "hidden"] },
+  "description": "Agent Teams 专家配置、模型和知识库绑定"
+}

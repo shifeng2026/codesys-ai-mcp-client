@@ -1,0 +1,324 @@
+{
+  "version": 1,
+  "plugins": {
+    "codesys-monitor": {
+      "id": "codesys-monitor",
+      "name": "CODESYS 工作台",
+      "version": "1.1.0",
+      "source": "bundled:codesys-monitor@1.1.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "hybrid",
+        "codesys.window.read",
+        "codesys.screen.monitor",
+        "codesys.scriptengine.offline"
+      ],
+      "ui": {
+        "kind": "surface",
+        "surface": "codesys",
+        "visible": true,
+        "defaultPlacement": "left",
+        "allowedPlacements": [
+          "left",
+          "right",
+          "hidden"
+        ]
+      },
+      "description": "CODESYS 实时屏幕监视、ModLens 分析与受限 ScriptEngine 离线自动化"
+    },
+    "modlens": {
+      "id": "modlens",
+      "name": "@liustack/modlens",
+      "version": "3.18.1",
+      "source": "bundled:modlens@3.18.1",
+      "manifestHash": "6d3d878cdd1e51769efb6a66482c09ab6e7c87afb6a495d4ce18d439c79f73e4",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installedAt": "2026-08-22T08:58:57.385Z",
+      "capabilities": [
+        "tool/service-only",
+        "vision.read"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Harness 视觉工具桥接；无侧栏界面"
+    },
+    "better-sidebar": {
+      "id": "better-sidebar",
+      "name": "dsh-better-sidebar",
+      "version": "0.12.3",
+      "source": "bundled:dsh-better-sidebar@0.12.3",
+      "protected": true,
+      "state": "enabled",
+      "installedAt": "2026-08-23T00:00:00.000Z",
+      "capabilities": [
+        "tool/service-only",
+        "sidebar.registry"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Better Sidebar 注册和中央工作区导航核心"
+    },
+    "taskhive-surfaces": {
+      "id": "taskhive-surfaces",
+      "name": "taskhive-surfaces",
+      "version": "1.1.0",
+      "source": "bundled:taskhive-surfaces@1.1.0",
+      "protected": true,
+      "state": "enabled",
+      "installedAt": "2026-08-23T00:00:00.000Z",
+      "capabilities": [
+        "hybrid",
+        "surface.registry",
+        "knowledge.search",
+        "expert.run"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "TaskHive 集成工具与 Harness surface 注册"
+    },
+    "taskhive-codex-model": {
+      "id": "taskhive-codex-model",
+      "name": "taskhive-codex-model",
+      "version": "0.1.0",
+      "source": "bundled:taskhive-codex-model@0.1.0",
+      "protected": true,
+      "state": "enabled",
+      "installedAt": "2026-08-23T00:00:00.000Z",
+      "capabilities": [
+        "model.provider",
+        "model.catalog"
+      ],
+      "ui": {
+        "kind": "settings-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Harness Codex 模型提供方"
+    },
+    "dsh-genui": {
+      "id": "dsh-genui",
+      "name": "DSH GenUI",
+      "version": "0.8.6",
+      "source": "bundled:@omdsh-dev/dsh-genui@0.8.6",
+      "runtimeMount": false,
+      "protected": true,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "tool/service-only",
+        "agent.output.render",
+        "card.render"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Harness Agent 结构化输出、卡片和 UI 渲染后台插件"
+    },
+    "dsh-agent-teams": {
+      "id": "dsh-agent-teams",
+      "name": "DSH Agent Teams",
+      "version": "0.1.6",
+      "source": "bundled:@nanmicoder/dsh-agent-teams@0.1.6",
+      "runtimeMount": false,
+      "protected": true,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "tool/service-only",
+        "expert.agent-teams"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Harness 专家团队调度后台内核"
+    },
+    "web-ai": {
+      "id": "web-ai",
+      "name": "浏览器",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-web-ai@1.0.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "hybrid",
+        "web-ai.chat"
+      ],
+      "ui": {
+        "kind": "surface",
+        "surface": "web-ai",
+        "visible": true,
+        "defaultPlacement": "left",
+        "allowedPlacements": [
+          "left",
+          "right",
+          "hidden"
+        ]
+      },
+      "description": "中央工作区内的多网页 AI 浏览器"
+    },
+    "knowledge-base": {
+      "id": "knowledge-base",
+      "name": "知识库",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-knowledge@1.0.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "hybrid",
+        "knowledge.cards",
+        "knowledge.sync",
+        "knowledge.writeback"
+      ],
+      "ui": {
+        "kind": "surface",
+        "surface": "knowledge",
+        "visible": true,
+        "defaultPlacement": "left",
+        "allowedPlacements": [
+          "left",
+          "right",
+          "hidden"
+        ]
+      },
+      "description": "卡片式知识库、审核沉淀和多客户端同步"
+    },
+    "experts": {
+      "id": "experts",
+      "name": "专家",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-experts@1.0.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "hybrid",
+        "expert.agent-teams",
+        "expert.knowledge-recall"
+      ],
+      "ui": {
+        "kind": "surface",
+        "surface": "experts",
+        "visible": true,
+        "defaultPlacement": "left",
+        "allowedPlacements": [
+          "left",
+          "right",
+          "hidden"
+        ]
+      },
+      "description": "Agent Teams 专家配置、模型和知识库绑定"
+    },
+    "dsh-mnemon": {
+      "id": "dsh-mnemon",
+      "name": "dsh-mnemon",
+      "version": "0.3.0",
+      "source": "npm:dsh-mnemon@0.3.0",
+      "runtimeMount": true,
+      "protected": true,
+      "state": "enabled",
+      "installed": true,
+      "installedAt": "2026-08-25T00:00:00.000Z",
+      "capabilities": [
+        "tool/service-only",
+        "memory.retain",
+        "memory.recall",
+        "memory.shared",
+        "memory.documents"
+      ],
+      "ui": {
+        "kind": "settings-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "Harness 原生三层记忆控制平面；供会话、模型、知识库和专家共享"
+    },
+    "charts": {
+      "id": "charts",
+      "name": "图表",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-charts@1.0.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "tool/service-only",
+        "chart.render",
+        "chart.export"
+      ],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "defaultPlacement": "hidden",
+        "allowedPlacements": []
+      },
+      "description": "结构化数据转柱状、折线、饼图、状态流、时序和寄存器图；仅作为输出渲染能力"
+    },
+    "plugin-manager": {
+      "id": "plugin-manager",
+      "name": "插件管理",
+      "version": "1.0.0",
+      "source": "bundled:taskhive-plugin-manager@1.0.0",
+      "runtimeMount": false,
+      "state": "enabled",
+      "installed": true,
+      "capabilities": [
+        "surface",
+        "plugin.lifecycle"
+      ],
+      "ui": {
+        "kind": "surface",
+        "surface": "packages",
+        "visible": true,
+        "defaultPlacement": "left",
+        "allowedPlacements": [
+          "left",
+          "right",
+          "hidden"
+        ]
+      },
+      "description": "插件、知识库和专家仓库生命周期管理"
+    },
+    "distill": {
+      "id": "distill",
+      "name": "@loserfox/distill",
+      "version": "0.1.0",
+      "source": "bundled:repositories/distill",
+      "manifestHash": "e9a11fe5735c04bdfc3ea48d9b01ca579f485adcd7cf3a9805020fd2c8a57877",
+      "state": "enabled",
+      "installedAt": "2026-08-25T06:10:37.272Z",
+      "order": 14,
+      "capabilities": [],
+      "ui": {
+        "kind": "tool/service-only",
+        "visible": false,
+        "allowedPlacements": []
+      },
+      "description": "Automatic conversation reflection and skill distillation for the DeepSeek Harness"
+    }
+  }
+}
