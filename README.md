@@ -78,7 +78,30 @@ knowledge/
 
 ### 方式 1：下载完整可运行包（推荐给普通用户）
 
-到本仓库 **Releases** 页面下载完整压缩包，解压后直接运行 `TaskHive.exe`。
+到 **[Releases](https://github.com/shifeng2026/codesys-ai-mcp-client/releases)** 页面下载：
+
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| `TaskHive-1.0.3-win-x64.zip` | 762 MB | 解压后双击 `TaskHive.exe` 即可使用，无需安装 Node.js |
+
+直链：
+
+```text
+https://github.com/shifeng2026/codesys-ai-mcp-client/releases/download/v1.0.3/TaskHive-1.0.3-win-x64.zip
+```
+
+解压后目录结构：
+
+```text
+TaskHive-1.0.3\
+  TaskHive.exe        程序入口，双击启动
+  使用说明.txt
+  resources\app\      程序本体与全部配置文件夹
+  *.dll *.pak *.dat   Electron 运行库
+```
+
+> 压缩包内含 27 万个文件，Windows 资源管理器解压较慢，建议用
+> 7-Zip 或 `tar -xf TaskHive-1.0.3-win-x64.zip`。
 
 ### 方式 2：从源码构建（开发者）
 
