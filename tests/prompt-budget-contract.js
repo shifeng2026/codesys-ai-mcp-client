@@ -14,7 +14,7 @@
 // (web-ai), must keep the mandatory guard+protocol, and must stay within budget.
 const fs = require('node:fs')
 const http = require('node:http')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -52,7 +52,7 @@ async function startBridge() {
 }
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-budget-'))
+  const root = createTempDir('taskhive-budget-')
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
   process.env.TASKHIVE_ROOT = root
 
@@ -93,9 +93,11 @@ async function main() {
     check('the assembled prompt never exceeds totalChars', prompt.length <= TOTAL, String(prompt.length))
     check('the window budget was actually applied', prompt.includes(DROP_OLDEST_RECENT) && !prompt.includes(OLDEST_RECENT_TAIL))
 
-    // A huge ModLens block: `modlensContextFor` has no bound of its own, so the
-    // vision section is capped like every other one. It must not be able to push
-    // the system prompt or the user's current question out of the prompt.
+    // A huge vision block: the vision section is capped like every other one, so a
+    // verbose block cannot push the system prompt or the user's current question out
+    // of the prompt. (用户的删除要求 2026-10 之后 `visionContext` 只可能是空串或那条
+    // "没有视觉通道"的降级说明；这条预算断言按**意图**保留 —— 它保护的是提示词的边界，
+    // 与视觉通道由谁提供无关。)
     const visionHead = 'VISION_HEAD_MARK_a1'
     const visionTail = 'VISION_TAIL_MARK_b2'
     const bigVision = `${visionHead}${'v'.repeat(120000)}${visionTail}`

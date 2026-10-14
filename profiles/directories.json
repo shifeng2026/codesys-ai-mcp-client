@@ -4,7 +4,7 @@
     {
       "id": "program",
       "name": "程序本体",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -14,7 +14,7 @@
     {
       "id": "plugins",
       "name": "插件目录",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\plugins",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\plugins",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -24,7 +24,7 @@
     {
       "id": "models",
       "name": "模型目录",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\models",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\models",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -34,7 +34,7 @@
     {
       "id": "knowledge",
       "name": "知识库目录",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\knowledge",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\knowledge",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -42,19 +42,9 @@
       "relativePath": "knowledge"
     },
     {
-      "id": "experts",
-      "name": "专家目录",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\experts",
-      "gitUrl": "",
-      "builtin": true,
-      "portable": true,
-      "portableScope": "app",
-      "relativePath": "experts"
-    },
-    {
       "id": "videoModels",
       "name": "视频模型",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\video-models",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\video-models",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -64,7 +54,7 @@
     {
       "id": "workspaces",
       "name": "工作区",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\workspaces",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\workspaces",
       "gitUrl": "",
       "builtin": true,
       "portable": true,
@@ -74,7 +64,7 @@
     {
       "id": "profiles",
       "name": "配置目录",
-      "path": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\profiles",
+      "path": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\resources\\app\\profiles",
       "gitUrl": "",
       "builtin": true,
       "portable": true,

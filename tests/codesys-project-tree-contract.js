@@ -19,8 +19,10 @@
 const assert = require('node:assert')
 const fs = require('node:fs')
 const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
+const { probeSource } = require('./lib/probe-source')
 
 const root = path.resolve(__dirname, '..')
 const enginePath = path.join(root, 'plugins/installed/codesys-monitor/scriptengine.cjs')
@@ -153,8 +155,14 @@ assert(client.includes("'data-editor-section': section.id"), 'each editor sectio
 assert(client.includes("id: 'declaration', label: '声明（Declaration）'"), 'the declaration section must exist')
 assert(client.includes("id: 'implementation', label: '实现（Implementation）'"), 'the implementation section must exist')
 assert(client.includes("...(selected.hasDeclaration ? [{ id: 'declaration'"), 'a section is rendered only when the object has it')
-assert(client.includes('const declarationRefs = { gutter: React.useRef(null), highlight: React.useRef(null), values: React.useRef(null) }'), 'the declaration needs its own gutter/tint/value refs')
-assert(client.includes('const implementationRefs = { gutter: React.useRef(null), highlight: React.useRef(null), values: React.useRef(null) }'), 'the implementation needs its own gutter/tint/value refs')
+// 本轮（样式 A）第三列值列退休，改成"就地跟在变量后面"的镜像层，所以每个区自己那条
+// ref 也从 `values` 改名成 `inline`（意图不变：每个区都要有自己的 gutter/tint/镜像三件套，
+// 三件都得真的被渲染和同步用上 —— 下面三条一起钉）。
+assert(client.includes('const declarationRefs = { gutter: React.useRef(null), highlight: React.useRef(null), inline: React.useRef(null) }'), 'the declaration needs its own gutter/tint/inline-mirror refs')
+assert(client.includes('const implementationRefs = { gutter: React.useRef(null), highlight: React.useRef(null), inline: React.useRef(null) }'), 'the implementation needs its own gutter/tint/inline-mirror refs')
+assert(client.includes("className: 'taskhive-codesys-inline-online', ref: refs.inline,"), 'the declaration mirror must be wired to that ref')
+assert(client.includes("if (refs.inline?.current) refs.inline.current.style.transform = `translate(${-left}px, ${-top}px)`"), 'and the ref must actually drive the scroll sync (both axes)')
+assert(client.includes("if (refs.inline.current) refs.inline.current.style.transform = 'translate(0px, 0px)'"), 'and reset when another object is loaded')
 assert(client.includes("'data-section-changed-lines': [...changed].join(',')"), 'each section tracks its own changed lines')
 // Clicking into a section must not flash a dark box: the native `title` tooltip
 // and the 1.0.2 black focus ring are both gone.
@@ -184,10 +192,10 @@ assert(!client.includes('editedParts'), 'the fragile blank-line split of the man
 assert(client.includes("...(selected.hasDeclaration && declarationManual ? { declaration: editedDeclaration } : {})"), 'the manual change must be built from the declaration section directly')
 assert(client.includes("...(selected.hasImplementation && implementationManual ? { implementation: editedImplementation } : {})"), 'the manual change must be built from the implementation section directly')
 assert(client.includes('declaration: String(editedDeclaration || \'\').slice(0, CODESYS_OPEN_OBJECT_BUDGET)'), 'the published state must carry the two sections separately')
-assert(main.includes("const declarationEditor = workbench?.querySelector('[data-editor-part=\"declaration\"]')"), 'the probe must read both editor parts')
-assert(main.includes('const sectionNumberingVerified = editorSections.length >= 1'), 'the probe must verify per-section line numbering')
-assert(main.includes("section.firstGutterNumber === '1' && section.gutterLines === section.lines"), 'each section must start at line 1 with matching gutter length')
-assert(main.includes("/PROGRAM\\s+PLC_PRG/i.test(String(snapshot.editor.declaration || ''))"), 'the PROGRAM marker lives in the declaration, not the implementation')
+assert(probeSource.includes("const declarationEditor = workbench?.querySelector('[data-editor-part=\"declaration\"]')"), 'the probe must read both editor parts')
+assert(probeSource.includes('const sectionNumberingVerified = editorSections.length >= 1'), 'the probe must verify per-section line numbering')
+assert(probeSource.includes("section.firstGutterNumber === '1' && section.gutterLines === section.lines"), 'each section must start at line 1 with matching gutter length')
+assert(probeSource.includes("/PROGRAM\\s+PLC_PRG/i.test(String(snapshot.editor.declaration || ''))"), 'the PROGRAM marker lives in the declaration, not the implementation')
 // The workbench already owns the project controls, so the tree pane must NOT
 // repeat them (field report: "为什么项目树里边会有检测工程和打开文件？").
 assert(!client.includes("'data-codesys-empty-detect'"), 'the empty tree must not duplicate the 刷新当前工程 action')
@@ -207,15 +215,15 @@ assert(client.includes('buildTree: (items) => {'), 'the seam must expose the tre
 assert(client.includes('kindOf: (item) => codesysKindOfObject(item || {})'), 'the seam must expose the classifier for probes')
 
 // --- 3. the packaged probe verifies it in the real window ------------------
-assert(main.includes('const objectItems = treeRows.filter((item) => item.guid)'), 'the probe must separate group rows from object rows')
-assert(main.includes('snapshot.uniqueGuidCount === snapshot.objectItems.length'), 'the GUID assertions must read object rows only')
-assert(main.includes('const treeStructureVerified ='), 'the probe must assert the tree structure')
-assert(main.includes('const treeInteractionVerified ='), 'the probe must assert expand/collapse and filtering')
-assert(main.includes('const seamVerified ='), 'the probe must exercise the classifier/tree seam')
-assert(main.includes("snapshot.seam.kinds.join(',') === 'device,plc-logic,application,library-manager,pou'"), 'the probe must assert the synthetic classification result')
-assert(main.includes("const treeToggle = await frame.executeJavaScript(`new Promise((resolve) => {"), 'the probe must click a real twisty')
-assert(main.includes("const treeFilterProbe = await frame.executeJavaScript(`new Promise((resolve) => {"), 'the probe must click a real filter')
-assert(main.includes('const editor = workbench?.querySelector(\'[data-codesys-code-editor="true"]\')'), 'the probe must read the real code editor (the old diff pane no longer exists)')
+assert(probeSource.includes('const objectItems = treeRows.filter((item) => item.guid)'), 'the probe must separate group rows from object rows')
+assert(probeSource.includes('snapshot.uniqueGuidCount === snapshot.objectItems.length'), 'the GUID assertions must read object rows only')
+assert(probeSource.includes('const treeStructureVerified ='), 'the probe must assert the tree structure')
+assert(probeSource.includes('const treeInteractionVerified ='), 'the probe must assert expand/collapse and filtering')
+assert(probeSource.includes('const seamVerified ='), 'the probe must exercise the classifier/tree seam')
+assert(probeSource.includes("snapshot.seam.kinds.join(',') === 'device,plc-logic,application,library-manager,pou'"), 'the probe must assert the synthetic classification result')
+assert(probeSource.includes("const treeToggle = await frame.executeJavaScript(`new Promise((resolve) => {"), 'the probe must click a real twisty')
+assert(probeSource.includes("const treeFilterProbe = await frame.executeJavaScript(`new Promise((resolve) => {"), 'the probe must click a real filter')
+assert(probeSource.includes('const editor = workbench?.querySelector(\'[data-codesys-code-editor="true"]\')'), 'the probe must read the real code editor (the old diff pane no longer exists)')
 // The model must see WHERE the open object lives, not only its text.
 assert(host.includes('treePath: Array.isArray(open.path) ? open.path.slice(0, 32).map((part) => String(part || \'\')) : []'), 'the read tool must report the open object tree path')
 assert(host.includes('kindCounts: state.kindCounts || {}'), 'the read tool must report the project shape')
@@ -324,11 +332,15 @@ function runContract() {
     process.stdout.write('codesys project tree contract passed (Python unavailable: emitted-script execution skipped)\n')
     return
   }
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-tree-'))
+  const dir = createTempDir('taskhive-tree-')
   const scriptFile = path.join(dir, 'offline-action.py')
   fs.writeFileSync(scriptFile, generated, 'utf8')
-  const compile = spawnSync(python[0], [...python.slice(1), '-m', 'py_compile', scriptFile], { stdio: 'inherit' })
-  assert.strictEqual(compile.status, 0, 'the emitted ScriptEngine Python must compile')
+  // 外部解释器必须有界：没有 timeout 的话，一个卡住的 python 会把整条契约拖到 runner
+  // 的全局预算上被硬杀，契约自己的编译错误与退出码一个字都留不下（T229 同类，尚未被
+  // 观测到的潜在脆弱）。实测这两步各 ~200-400 ms，30 s 是 ~70× 余量，并且给外层留出
+  // 自我诊断的时间；超时后 compile.error 会被写进断言消息，而不是伪装成"没编译过"。
+  const compile = spawnSync(python[0], [...python.slice(1), '-m', 'py_compile', scriptFile], { stdio: 'inherit', timeout: 30000 })
+  assert.strictEqual(compile.status, 0, `the emitted ScriptEngine Python must compile${compile.error ? ` (${compile.error.code || compile.error.message})` : ''}`)
 
   const { helpers, inspect } = extractSnippets(generated)
   // The helper body is already indented for a function body, so it is used verbatim.
@@ -427,8 +439,8 @@ function runContract() {
   ].join('\n')
   const harnessFile = path.join(dir, 'tree-harness.py')
   fs.writeFileSync(harnessFile, harness, 'utf8')
-  const run = spawnSync(python[0], [...python.slice(1), harnessFile], { stdio: 'inherit' })
-  assert.strictEqual(run.status, 0, 'the emitted walk must produce the real hierarchy')
+  const run = spawnSync(python[0], [...python.slice(1), harnessFile], { stdio: 'inherit', timeout: 30000 })
+  assert.strictEqual(run.status, 0, `the emitted walk must produce the real hierarchy${run.error ? ` (${run.error.code || run.error.message})` : ''}`)
 
   process.stdout.write('codesys project tree contract passed (engine walk executed + client tree asserted)\n')
 }

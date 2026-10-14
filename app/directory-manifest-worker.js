@@ -16,7 +16,7 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { generateDirectoryManifest } = require('./directory-manifest');
 
 try {
-  const manifest = generateDirectoryManifest(workerData.programRoot);
+  const manifest = generateDirectoryManifest(workerData.programRoot, { executable: workerData.executable });
   parentPort.postMessage({ ok: true, generatedAt: manifest.generatedAt, totals: manifest.totals });
 } catch (error) {
   parentPort.postMessage({ ok: false, error: String((error && error.stack) || error) });

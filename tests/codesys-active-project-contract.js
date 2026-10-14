@@ -2,12 +2,12 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
+const { createTempDir } = require('./lib/temp-dir');
 const path = require('path');
 const { CodesysScriptEngine } = require('../plugins/installed/codesys-monitor/scriptengine.cjs');
 
 (async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-codesys-active-'));
+  const root = createTempDir('taskhive-codesys-active-');
   const sourcePath = path.join(root, 'active.project');
   fs.writeFileSync(sourcePath, 'fixture');
   const engine = new CodesysScriptEngine(root, { runProcess: async () => { throw new Error('runProcess must not be reached'); } });

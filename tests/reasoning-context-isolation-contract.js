@@ -18,7 +18,7 @@
 // only adapter that emits one) is asserted to survive.
 const fs = require('node:fs')
 const http = require('node:http')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -45,7 +45,7 @@ function startBridge() {
 }
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-reasoning-'))
+  const root = createTempDir('taskhive-reasoning-')
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
   process.env.TASKHIVE_ROOT = root
 

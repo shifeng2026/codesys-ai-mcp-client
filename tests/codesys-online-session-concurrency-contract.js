@@ -19,7 +19,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
+const { createTempDir } = require('./lib/temp-dir');
 const path = require('path');
 const { EventEmitter } = require('events');
 
@@ -81,7 +81,7 @@ function makeFakeSpawner(pending = []) {
 // 真的 CodesysScriptEngine，只把 CODESYS 安装探测换成假的；作业读写是真的（要验证
 // "绑定跟着作业走"）。
 function createHarness() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-online-'));
+  const root = createTempDir('taskhive-online-');
   roots.push(root);
   const jobId = 'direct-1789962559760-4e86cd12';
   const jobDir = path.join(root, 'jobs', jobId);

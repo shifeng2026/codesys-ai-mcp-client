@@ -2,7 +2,7 @@
 
 // Contract for task decomposition and multi-model dispatch.
 //
-// The user asked whether TaskHive needs its own expert/orchestration layer and
+// The user asked whether TaskHive needs its own orchestration layer and
 // whether task splitting with per-task model routing should be built. The
 // evidence says it already exists in the harness core, and that TaskHive must
 // keep it available rather than shadow it with a second orchestration path
@@ -28,18 +28,27 @@
 // subagent providers disabled, and so does this contract.
 
 const assert = require('assert');
+const { registrationIndex } = require('./lib/source-anchors');
 const { existsSync, readFileSync } = require('fs');
 const { join } = require('path');
 
 const appRoot = join(__dirname, '..');
 const read = (relative) => readFileSync(join(appRoot, relative), 'utf8');
 
+// DSH 0.2.0-rc.1 dropped the `@deepseek-ai/dsh-agent-presets` package (and every
+// agent.cordis.yml with it). The composition this install launches now ships in
+// @deepseek-ai/dsh-web-app/presets/ (layered over @deepseek-ai/dsh-base).
 const presetPath = join(
   'harness', 'runtime', 'slot', 'payload', 'node_modules', '.pnpm', 'node_modules',
-  '@deepseek-ai', 'dsh-agent-presets', 'presets', 'cordis', 'agent.cordis.yml',
+  '@deepseek-ai', 'dsh-web-app', 'presets', 'cordis.patch.yml',
 );
-assert(existsSync(join(appRoot, presetPath)), 'the cordis agent preset must ship in the slot payload');
-const preset = read(presetPath);
+// T159：`harness/runtime/slot/payload` 只存在于真正的应用树里。`.repo-stage` 是镜像，
+// 它没有 payload —— 所以先在本树找，找不到就回退到 `../resources/app`（同仓库的应用树）。
+// 这样同一个测试文件在两棵树里都能跑，不必维护两份不同实现（两棵树分叉本身就是隐患）。
+const presetRoots = [appRoot, join(appRoot, '..', 'resources', 'app')];
+const presetRoot = presetRoots.find((candidate) => existsSync(join(candidate, presetPath)));
+assert(presetRoot, 'the cordis agent preset must ship in the slot payload');
+const preset = readFileSync(join(presetRoot, presetPath), 'utf8');
 
 // ── 1. Native delegation is composed, with multi-model selection on ────────
 assert(/dsh-tool-subagent'/.test(preset), 'the preset must mount the subagent delegation tool');
@@ -89,92 +98,29 @@ assert(visibleRoutes.some((route) => route.startsWith('claude-code/')), 'the Cla
 // ── 5. A visibility change must actually reach the running Harness ────────
 // Otherwise the model never appears in the composer and cannot be routed to.
 assert(main.includes('function scheduleModelCatalogRefresh('), 'the catalog refresh helper must exist');
-assert(/scheduleModelCatalogRefresh\(\)/.test(main.slice(main.indexOf("ipcMain.handle('models:set-visible'"))), 'toggling visibility must refresh the Harness model registry');
+assert(/scheduleModelCatalogRefresh\(\)/.test(main.slice(registrationIndex(main, 'models:set-visible'))), 'toggling visibility must refresh the Harness model registry');
 
-// ── 6. The TaskHive experts surface must not be a second agent loop ───────
-// Its run path already goes through `ctx.subagents.start('spawn', ...)` with the
-// parent agent attached, so it is delegation on the native seam rather than a
-// parallel loop. What it must also do is actually route each expert to its own
-// model, and report it when it cannot.
-const expertsManifest = JSON.parse(read(join('plugins', 'installed', 'experts', 'plugin.json')));
-assert(expertsManifest.capabilities.includes('expert.agent-teams'), 'the experts surface keeps its configuration capabilities');
+// ── 6. TaskHive ships no orchestration layer of its own ───────────────────
+// The 专家团队 (experts) layer was deleted outright: TaskHive now relies on the
+// native delegation path asserted in sections 1-5 above, and on the DSH-native
+// Agent Teams tools the agent preset already mounts. This section keeps a second
+// orchestration path from creeping back — it is the property the original
+// section 6 protected, now stated as an absence.
+assert(!existsSync(join(appRoot, 'plugins', 'installed', 'experts')), 'the TaskHive experts plugin must not come back');
+assert(!existsSync(join(appRoot, 'experts')), 'the TaskHive experts data directory must not come back');
+const pluginCatalog = JSON.parse(read(join('plugins', 'catalog.json')));
+assert(!pluginCatalog.plugins.experts, 'the plugin catalog must not declare an experts plugin');
+assert(!pluginCatalog.plugins['dsh-agent-teams'], 'the inert dsh-agent-teams descriptor must not be declared either');
+assert(!(pluginCatalog.plugins['taskhive-surfaces'].capabilities || []).includes('expert.run'), 'taskhive-surfaces must not advertise an expert capability');
 const surfacesIndex = read(join('plugins', 'installed', 'taskhive-surfaces', 'dsh', 'index.js'));
-assert(/ctx\.subagents\.start\('spawn'/.test(surfacesIndex), 'expert runs must delegate through the native subagent seam');
-assert(/parent: exec\.agent/.test(surfacesIndex), 'child experts must be parented to the live agent');
-assert(/agentOptions: \{ provider: route\.provider, model: route\.model/.test(surfacesIndex), 'each expert must pass its own provider/model as agentOptions');
-assert(/toolFilter: \{ allow: \[/.test(surfacesIndex), 'child experts must stay inside a read-only tool scope');
-assert(/maxDepth: 1/.test(surfacesIndex), 'child experts must not be able to recurse');
-assert(/await run\.dispose\(\)/.test(surfacesIndex), 'child experts must be disposed after the run');
+assert(!/taskhive_expert_/.test(surfacesIndex), 'taskhive-surfaces must not register expert tools');
+assert(!/runExpertTeam|expertDispatch/.test(surfacesIndex), 'taskhive-surfaces must not carry an expert dispatch path');
 assert(!/new Agent\(|createAgent\(|runAgentLoop\(/.test(surfacesIndex), 'TaskHive must not create its own agent loop');
-
-// ── 7. Multi-model must be the default and must not fail silently ─────────
-// `routeMode` used to default to `inherited`, so a configured team ran every
-// expert on the parent model; and an unresolvable configured route was swallowed
-// by an empty catch, so a misconfigured expert silently became the parent model.
-assert(/const routeMode = args\.routeMode === 'inherited' \? 'inherited' : 'configured'/.test(surfacesIndex), 'per-expert routing must be the default');
-assert(surfacesIndex.includes('const PROVIDER_ALIASES = Object.freeze('), 'short provider names must be aliased to registered ids');
-assert(/ollama: 'ollama-local'/.test(surfacesIndex), 'the shipped team says `ollama`; it must map to `ollama-local`');
-assert(surfacesIndex.includes('const resolveRegisteredProviderId = (ctx, requested) =>') || surfacesIndex.includes('function resolveRegisteredProviderId(ctx, requested)'), 'provider ids must be resolved against the registry');
-assert(/fallbackReason: reason/.test(surfacesIndex), 'a failed configured route must be reported, not swallowed');
-assert(!/catch \{\}/.test(surfacesIndex.slice(surfacesIndex.indexOf('async function expertRoute'), surfacesIndex.indexOf('function expertPrompt'))), 'expertRoute must not swallow the resolution failure');
-assert(/routeSummary,/.test(surfacesIndex), 'the run must report which models actually ran');
-assert(/multiModel: usedRoutes\.length > 1/.test(surfacesIndex), 'the summary must state whether the team was genuinely multi-model');
-assert(/routeSummary: \{ type: 'object' \}/.test(surfacesIndex), 'routeSummary must be in the tool output schema, which forbids extra properties');
-assert(/provider: \{ type: 'string' \}, model: \{ type: 'string' \}, reasoningEffort: \{ type: 'string' \}/.test(surfacesIndex), 'the tool must accept a per-call route override');
-
-// ── 8. The experts UI must be able to set a per-expert route ──────────────
-// Only the create form had a model picker, so a seeded expert kept an unusable
-// provider forever and there was no way to fix it from the UI.
-const renderer = read(join('app', 'renderer', 'renderer.js'));
-assert(renderer.includes('expertRouteSelect'), 'the expert cards must expose a route selector');
-assert(/data-expert-model=/.test(renderer), 'each expert card must carry a route select');
-assert(/window\.taskhive\.updateExpert\(\{ id: select\.dataset\.expertModel, providerId/.test(renderer), 'changing the route must persist through updateExpert');
-assert(/不在可用模型目录/.test(renderer), 'an unusable configured route must be shown as invalid rather than rendered blank');
-
-// ── 9. Follow-up multi-turn must go through startContinuable ─────────────
-// One-shot delegation disposes the child at settlement, so it can never be
-// asked anything else. The durable form is `startContinuable`, whose stable
-// childId the native `send_message` / `list-agents` / `interrupt` control tools
-// address — those tools are already mounted by the agent preset (asserted in
-// section 1), so no extra TaskHive orchestrator is needed.
-assert(/ctx\.subagents\.startContinuable\(/.test(surfacesIndex), 'the expert path must be able to start durable continuable children')
-assert(/provider: 'spawn',\s*\n\s*label:/.test(surfacesIndex), 'startContinuable must name the provider and label')
-assert(/request: subagentRequest,/.test(surfacesIndex), 'startContinuable must pass the same request shape as the one-shot path')
-assert(/stopReason: 'dispatched'/.test(surfacesIndex), 'a continuable dispatch must report itself as dispatched, not completed')
-assert(/childId: String\(started\?\.childId \|\| ''\)/.test(surfacesIndex), 'the durable child id must be captured')
-assert(/children: runs\.filter\(\(run\) => run\.childId\)/.test(surfacesIndex), 'the run must return the child ids for follow-up')
-assert(/tool: 'send_message'/.test(surfacesIndex), 'the follow-up path must name the native control tool')
-assert(/querySelector|list-agents/.test(surfacesIndex) || /list-agents/.test(surfacesIndex), 'the follow-up guidance must mention discovering live children')
-// Continuable children must NOT be disposed, or follow-up is impossible.
-const continuableStart = surfacesIndex.indexOf('if (canContinue) {');
-assert(continuableStart !== -1, 'the continuable branch must exist');
-// Anchor on the one-shot call (`start(`, not `startContinuable(`) and take the
-// nearest preceding `try {`, because the continuable branch has its own try.
-const oneShotCall = surfacesIndex.indexOf('run = await ctx.subagents.start(');
-assert(oneShotCall > continuableStart, 'the one-shot call must follow the continuable branch');
-const oneShotTry = surfacesIndex.lastIndexOf('try {', oneShotCall);
-const continuableBranch = surfacesIndex.slice(continuableStart, oneShotTry);
-assert(continuableBranch.includes('startContinuable'), 'the continuable branch must use startContinuable')
-assert(!/\.dispose\(\)/.test(continuableBranch), 'the continuable branch must not call dispose() on the child')
-// A provider that refuses continuable creation must fall back, not silently fail.
-assert(/return \{ stageId: stage.id, \.\.\.routeFields, stopReason: 'error', continuable: false/.test(surfacesIndex), 'a refused continuable start must be reported per stage')
-assert(/continuableFallback/.test(surfacesIndex), 'an unavailable startContinuable must be recorded')
-// No empty knowledge card when a dispatch has no outputs yet.
-assert(/retentionText && !canContinue/.test(surfacesIndex), 'a continuable dispatch must not retain an empty candidate')
-// Tool schema must admit the new fields, since it forbids extra properties.
-for (const field of ['continuable', 'children', 'followUp', 'continuation']) {
-  assert(surfacesIndex.includes(`${field}: { type:`) || surfacesIndex.includes(`${field}: { type: 'boolean' }`), `the tool schema must declare ${field}`)
-}
-
-// A dispatched child has not failed. Counting 'dispatched' as a failure made
-// every continuable run look broken and needlessly started the failure-only
-// takeover expert, so both the count and the fallback trigger must use the
-// shared predicate.
-assert(surfacesIndex.includes("const isFailure = (run) => run.stopReason !== 'completed' && run.stopReason !== 'dispatched'"), 'dispatched must not count as a failure')
-assert(surfacesIndex.includes('const failedCount = runs.filter(isFailure).length'), 'failedCount must use the shared failure predicate')
-assert(surfacesIndex.includes('if (runs.some(isFailure)) {'), 'the failure-only fallback stage must not trigger on dispatched children')
-assert(!/runs\.some\(\(run\) => run\.stopReason !== 'completed'\)/.test(surfacesIndex), 'the old dispatched-counts-as-failure predicate must be gone')
-// The refusal comment used to claim a one-shot fallback that never happens.
-assert(!surfacesIndex.includes('so fall back to a one-shot run for this stage'), 'the refusal path must not claim a fallback it does not perform')
+const hostMain = read(join('app', 'main.js'));
+assert(!/experts:status|ExpertConfigStore|publishExpertStatus/.test(hostMain), 'the host main process must not carry experts IPC');
+const hostPreload = read(join('app', 'preload.js'));
+assert(!/experts:|onExpertStatus/.test(hostPreload), 'the preload bridge must not expose experts IPC');
+const hostRenderer = read(join('app', 'renderer', 'renderer.js'));
+assert(!/'experts'/.test(hostRenderer) && !/expertStatus|updateExpert|expertRouteSelect/.test(hostRenderer), 'the host renderer must not carry an experts surface');
 
 console.log('subagent delegation contract passed');

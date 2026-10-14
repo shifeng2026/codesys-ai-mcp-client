@@ -16,7 +16,7 @@
 //      trivial prompt in 46s / 52s / 79s and sometimes past the cap), and the
 //      abandoned attempt is killed before the retry starts.
 const fs = require('node:fs')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -118,7 +118,7 @@ const textOf = (chunks, type) => chunks.filter((chunk) => chunk.type === 'block-
 const usageOf = (chunks) => chunks.find((chunk) => chunk.type === 'usage')?.usage
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-cli-routes-'))
+  const root = createTempDir('taskhive-cli-routes-')
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
   const countLog = path.join(root, 'count.log')
   const claudeRuns = () => (fs.existsSync(countLog) ? fs.readFileSync(countLog, 'utf8').split('\n').filter((line) => line.startsWith('claude:')) : [])

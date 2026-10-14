@@ -7,6 +7,9 @@ const path = require('path');
 const client = fs.readFileSync(path.resolve(__dirname, '../plugins/installed/taskhive-surfaces/dsh/client.js'), 'utf8');
 const host = fs.readFileSync(path.resolve(__dirname, '../plugins/installed/taskhive-surfaces/dsh/index.js'), 'utf8');
 const engine = fs.readFileSync(path.resolve(__dirname, '../plugins/installed/codesys-monitor/scriptengine.cjs'), 'utf8');
+// T228：编译明细的严重级别着色在**样式表**里（碎片 60-…，不在 client bundle 里），
+// 所以这里单独读它。着色规则只许引用主题令牌。
+const skin = fs.readFileSync(path.resolve(__dirname, '../plugins/installed/taskhive-surfaces/dsh/src/60-skin-and-embedded-surfaces.js'), 'utf8');
 
 assert(client.includes('buildCodesysTaskSnapshot'));
 assert(client.includes('buildCodesysTaskSnapshot'));
@@ -17,11 +20,57 @@ assert(client.includes("binding.session.prompt([{ type: 'text', text: instructio
 // project before the merge: apply-changes 34-36 s + build 45-47 s +
 // inspect-project 32-34 s = ~115 s per write, with `scriptEngineProcess` at 99.9 %
 // of EVERY call (34,387 / 34,411 ms) — the cost was three CODESYS startups, not the
-// edits. So the contract now pins the single-process shape, and pins the fallback
+// edits. So the contract pins the single-process shape, and pins the fallback
 // that keeps a degraded composite from leaving pre-write code on screen.
+//
+// T183 第 4 项改了那一行的**形状**（`includeTree:false` + `deferBuild:true`：同一个进程里
+// apply+save+提交回源之后立刻回报，45–60 秒的编译排到后台），所以这条断言从"钉一个字符串
+// 字面量"改成按**意图**钉住原来的四件事（语义一条都不删弱）：
+//   ① 确认写入仍是**一次**复合调用（不是 apply + build + inspect 三次 CODESYS 启动）；
+//   ② 写入前的 sha 防护（T167）还在，而且仍在写入之前；
+//   ③ 写入失败仍然可见（同一句状态文案 + "写前恢复快照已保留"）；
+//   ④ 编译结果一定回报：延迟路径用只读 `build-status` 收，默认路径仍从复合回报里收。
+// 客户端那一半的行为由 tests/codesys-deferred-build-poll-behaviour.js 真跑组件来钉。
 assert(
-  client.includes("run('apply-and-build', { jobId, changes, confirmed: true, includeTree: true })"),
-  'the confirmed write must run as one composite action (apply + save + build + tree)',
+  client.includes("run('apply-and-build', { jobId, changes, confirmed: true, includeTree: false, deferBuild: true })"),
+  'the confirmed write must run as one composite action that lands and commits first, with the compile deferred',
+);
+assert(
+  client.includes('const deferredBuildId = String(writeResult?.buildId || \'\')') && client.includes('if (deferredBuildId) {'),
+  'the deferred path may only be taken when the engine really handed back a build id',
+);
+assert(
+  client.includes("run('build-status', { jobId: active.jobId, buildId: active.buildId })"),
+  'the deferred compile must be collected through the read-only build-status action',
+);
+assert(
+  !/run\('build-status',[^)]*confirmed/.test(client),
+  'build-status is READ-ONLY: it must never be sent with confirmed:true (build is not MUTATING)',
+);
+// 本轮口径改动把写入那条路径的 payload 取值改成 `writeResult?.payload`（多了可选链）：
+// 桥不可用时 `writeResult` 可能是 undefined，非可选取值会抛进同一个 catch，把一次**成功**的
+// 写入报成"写入或编译失败"。意图（写入路径把同一个 payload 喂给同一个面板）一字未改，
+// 所以这里按意图匹配两种写法，而不是钉死一个字符。
+assert(
+  client.includes("summarizeCompilePayload(status, 'build')")
+    && /summarizeCompilePayload\(writeResult\??\.payload, 'build'\)/.test(client),
+  'the compile output must feed the same panel on BOTH paths (deferred poll and the default one-IPC composite)',
+);
+assert(
+  client.includes('已落盘并提交回源工程'),
+  'the landed result must get its own status line before the compile has finished',
+);
+assert(
+  client.includes('单次 ScriptEngine 完成写入+离线编译'),
+  'the default path (no build id in the answer) must keep its original single-IPC wording and behaviour',
+);
+assert(
+  client.includes('const guard = await checkSourceUnchanged(jobId)'),
+  'the T167 "project changed externally" sha guard must still run before a confirmed write',
+);
+assert(
+  client.includes('写入或编译失败：${error.message}；写前恢复快照已保留'),
+  'a write failure must stay visible, with the recovery snapshot advertised',
 );
 assert(
   !client.includes("run('build', { jobId })"),
@@ -84,7 +133,7 @@ assert(client.includes('[projectSnapshotSignature],'), 'the snapshot must only b
 // 发布的 openObject 正常。契约改为断言**不变量**而不是字符串形状。
 assert(client.includes('const snapshotChanged = codesysStateKeepAlive.publishedSignature !== projectSnapshotSignature'), 'the signature comparison must be against the host-CONFIRMED signature, not against the intended one');
 assert(!client.includes('publishedSnapshotRef'), 'the intent-time marker that swallowed the snapshot must stay gone');
-assert(client.includes('if (snapshotChanged) codesysStateKeepAlive.pendingSnapshot = { signature: projectSnapshotSignature, snapshot: projectSnapshot }'), 'a changed signature must queue a pending snapshot for delivery');
+assert(client.includes('if (snapshotChanged) codesysStateKeepAlive.pendingSnapshot = { sessionId: activeSession, signature: projectSnapshotSignature, snapshot: projectSnapshot }'), 'a changed signature must queue a session-owned pending snapshot for delivery');
 assert(client.includes('...(codesysStateKeepAlive.pendingSnapshot'), 'every publish must keep carrying the snapshot while it is still unconfirmed');
 assert(client.includes('codesysStateKeepAlive.publishedSignature = pending.signature'), 'the published marker may only advance after the host confirms');
 assert(client.includes('result.accepted !== false'), 'the host acknowledgement is what clears the pending snapshot');
@@ -102,7 +151,25 @@ assert(host.includes('projectSnapshotNote'), 'a missing snapshot must be explain
 assert(host.includes('const merged = previous && previous.state && typeof previous.state === \'object\''), 'publishWorkbenchState must merge so an omitted snapshot survives');
 assert(host.includes('? { ...previous.state, ...state }'), 'the merge must spread the previous state under the new one');
 assert(host.includes('include:"project-snapshot"'), 'the system prompt must advertise the tool path as the preferred way to get project-wide code');
-assert(client.includes('projectSnapshotSignature,\n      ].join(\'|\')'), 'a new inspect must change the fingerprint so the snapshot is republished');
+assert(client.includes('projectSnapshotSignature,'), 'a new inspect must change the fingerprint so the snapshot is republished');
+// T199 item 3: the same fingerprint must also carry the ONLINE session state, or the read-only
+// online tool would keep returning the connection state from whenever the user last edited
+// something. The online SIGNATURE never contains the variable values -- including those would
+// turn the 1.5 s value poll into a continuous push, which is the feature the operator deleted.
+assert(client.includes("        onlineStateSignature,\n"),
+  'a change in the online session state must also change the fingerprint');
+// 本轮 B 项：指纹的最后一项是**值的观测时刻**（不是值本身），并且只在**已登录到应用**时
+// 才带上 —— 未登录恒为 'ov:off'。见 codesys-ai-online-readonly-contract.js：
+// 值变了而在线状态没变时，旧指纹根本不发布，宿主手里永远停在打开 POU 那一刻（常常是空的），
+// 那正是"对话读不到在线变量"的来源。这里钉住它必须**在**指纹里，且不得放进 onlineStateSignature。
+// 本轮（用户规则原文：「把在线值开关去除，登录后默认在线值开启」）：这个分量原来的判据是
+// 「用户自己把那枚开关打开」；开关已整段删除，所以判据按**意图**换成更强的一条 —— 它由
+// **登录状态**把总闸（未登录恒为常量 'ov:off'，一个字节都不多发）。
+assert(client.includes("        onlineLoggedIn && onlineValues ? `ov:${String(onlineValues.at || 0)}` : 'ov:off',\n      ].join('|')"),
+  'the observed-value stamp must be the fingerprint tail, gated by the login state alone'
+  + ' (so the host can read the values the panel actually observed while logged in)');
+assert(!/onlineStateSignature = \[[\s\S]{0,900}?onlineValues/.test(client),
+  'the online signature must not include the online variable VALUES (that would be a push stream, not a state change)');
 
 // ── T089：状态续期心跳（只续期，不探测）───────────────────────────────────────
 // 宿主状态 15 分钟过期，而 T069 禁止的是"昂贵的定时工程探测"。心跳必须只重发已持有
@@ -111,7 +178,7 @@ assert(client.includes('const CODESYS_STATE_KEEPALIVE_MS = 5 * 60 * 1000'), 'the
 assert(/const codesysStateKeepAlive = \{[\s\S]{0,500}?state: null,[\s\S]{0,300}?sessionId: ''/.test(client), 'the keep-alive must hold the last published state at plugin level (so it survives the workbench tab closing)');
 assert(client.includes("publishedSignature: ''") && client.includes('pendingSnapshot: null'), 'the plugin-level store must also carry the snapshot delivery markers, so neither a remount nor the heartbeat can lose them');
 assert(
-  client.indexOf('const codesysStateKeepAlive') < client.indexOf('function CodesysWorkbench({ ctx })'),
+  client.indexOf('const codesysStateKeepAlive') < client.indexOf('function CodesysWorkbench({ ctx,'),
   'the keep-alive store must be declared OUTSIDE the workbench component',
 );
 assert(client.includes('void sendCodesysState(sessionId, state)'), 'the heartbeat must republish the stored state through the single send path, so an unconfirmed snapshot rides along');
@@ -228,8 +295,91 @@ assert(
   'the compile output must be rendered as selectable text and be copyable',
 );
 assert(
-  client.includes("summarizeCompilePayload(writeResult.payload, 'build')"),
+  /summarizeCompilePayload\(writeResult\??\.payload, 'build'\)/.test(client),
   'the write path already compiles — it must feed those messages into the same output panel',
+);
+
+// ── 编译计数口径（本轮）：**以编译器自己的总结行为准**，不是"我们显示了几条" ──────────────
+//
+// 现场报障：面板标题写「错误 0 · 警告 7 · 信息 5」，正文最后一行却是编译器自己的总结
+//   [Info] 编译: Text: C0: 编译完成 -- 0错误,28警告
+// 旧实现 `warningCount: messages.filter(...).length` 数的是正文条目数（编译器只显示了前 7 条），
+// 于是把总数少报成 7。下面这几条把"口径"钉住；只加强，不删弱 —— 上面 T097 那两条断言原样保留。
+assert(
+  client.includes('const compileCountLabel = (count, report, dimension) => {')
+    && client.includes('const compileCountText = (report) =>'),
+  '计数的呈现必须有**唯一一处**定义（标题 / 状态行 / 复制文本共用），否则三个地方会各报一个数',
+);
+// ① 面板标题必须走那个唯一文案函数（不是自己再拼一次 errorCount/warningCount）。
+assert(
+  client.includes("编译输出 · ${compileCountText(compileReport)}"),
+  '面板标题必须用 compileCountText，这样"总结 28 / 正文 7 条"的口径不会被某一条路径绕过',
+);
+// ② T226：头部（标题 / 离线与后台编译状态行 / 写入状态行 / 复制文本共用的 `compileCountText`）
+//    **只报两个数**：`错误 N · 警告 M` —— 不带「（已显示 N 条）」这类括注，也不再有「信息 N」
+//    这一档（用户口径："把这个显示去除…我只看编译结果"）。口径本身一个字都没丢：
+//    汇总与明细的差异、载入上限，全部挪进抽屉（`compileCountNotes` → `data-codesys-compile-note`）。
+assert(
+  client.includes("const compileCountText = (report) => `错误 ${compileCountLabel(report.errorCount, report, 'error')} · 警告 ${compileCountLabel(report.warningCount, report, 'warning')}`"),
+  '头部文案必须逐字是"错误 N · 警告 M"两个数（没有第三档）',
+);
+assert(
+  !/const compileCountText = \(report\) => `[^`]*（/.test(client)
+    && !/const compileCountText = \(report\) => `[^`]*信息/.test(client),
+  '头部文案里不许带「（已显示 N 条）」这类括注，也不许再有「信息 N」这一档',
+);
+assert(
+  client.includes('const compileCountNotes = (report) =>')
+    && client.includes("'data-codesys-compile-note': 'true'"),
+  '汇总与明细的差异（含"明细多出来的不计入编译器汇总"）必须仍有一行说明，而且只画在抽屉里',
+);
+// ③ 只有正文、没有总结行 ⇒ 计数＝正文条目数，并注明口径（这一句同样只在抽屉里）。
+assert(
+  client.includes('未解析出编译器汇总行') && client.includes('按已显示条目计'),
+  '只有正文时必须注明"按已显示条目计"；连总结行都没解析出来时（含其它语言/形态）如实说"未解析出汇总行"，'
+    + '**不**猜是哪种语言',
+);
+// ④ 两者都解析不出 ⇒ **未知**（不是 0）。旧的 `Number(payload?.errorCount || 0)` 会把"没解析出总结行"
+//    显示成"错误 0"，正是 T200 修过的假成功，那段写法必须**不再存在**。
+assert(
+  client.includes("if (count === null || count === undefined) return '未知'"),
+  '解析不出计数时必须显示"未知"，绝不能退化成 0（T200）',
+);
+assert(
+  !client.includes('errorCount: Number(payload?.errorCount || 0)'),
+  '`Number(payload?.errorCount || 0)` 必须删除：它把"未知"压成"0 错误"',
+);
+assert(
+  !client.includes("warningCount: messages.filter((item) => severityOf(item) === 'warning').length"),
+  '`warningCount: messages.filter(...).length` 必须删除：它把"编译器只显示了前 N 条"当成总数（本轮报障的根因）',
+);
+// ⑤ 生产端（引擎）必须把两对数字都过桥，否则界面只能退回数正文条数。
+assert(
+  engine.includes('function applyCompileResultToPayload(payload, compile) {')
+    && engine.includes('payload.summaryWarningCount = compile.summaryWarningCount;')
+    && engine.includes('payload.detailWarningCount = compile.detailWarningCount;')
+    && engine.includes('payload.warningCountSource = compile.warningCountSource;'),
+  '引擎必须把 summary/detail 两套计数与 source 一起过桥（`applyCompileResultToPayload` 是唯一一处）',
+);
+assert(
+  engine.includes('summaryWarningCount: summaryWarnings,')
+    && engine.includes('countsDiffer: Boolean(summary)'),
+  '结构化编译结果必须显式带上"总结行的数字"与"两者不一致"这个事实',
+);
+// ⑥ 后台编译（build-status）也必须带上同一套口径字段，否则那条路径又会退回数正文条数。
+assert(
+  /summaryWarningCount: payload\.summaryWarningCount === undefined \? null : payload\.summaryWarningCount/.test(engine),
+  'build-status 那条路径必须把口径字段一起带回（后台编译的计数口径与前台同一条）',
+);
+// ⑦ 抽屉那一侧照印工作台给的口径文案，并且 `null` 是"未知"而不是 0。
+const shellRenderer = fs.readFileSync(path.resolve(__dirname, '../app/renderer/renderer.js'), 'utf8');
+assert(
+  shellRenderer.includes('state.errorLabel') && shellRenderer.includes('state.warningLabel'),
+  'AI 抽屉的编译终态必须照印工作台带过来的口径文案（同一个数在哪儿看都是同一个）',
+);
+assert(
+  shellRenderer.includes("if (value === null || value === undefined || value === '') return '未知';"),
+  '抽屉里的计数也必须是"未知"而不是 0（与工作台同一条 T200 规则）',
 );
 
 // T104：工作台必须有**真正的**错误边界。以前 CodesysWorkbenchBoundary 只有 render()，
@@ -250,5 +400,43 @@ assert(
   client.includes('.taskhive-codesys-crash{'),
   'the crash view must be styled (otherwise it is just unstyled text in a blank pane)',
 );
+
+// T228：用户口径原文「错误行标红/警告行标黄」。这里按**意图**钉住三件事（判据与颜色取值由
+// codesys-compile-detail-completeness-contract.js 逐条算，这里只保证这三条规则还在、还只引用令牌、
+// 还没有被 !important 抢走、还没有反过来给 Info 行加底色）：
+//   ① 错误行 / 警告行各有一条着色规则（红 / 黄），两条**不同的**令牌；
+//   ② Info 行仍只有字色、没有底色、没有色条 —— 它和口径说明行保持中性，不抢眼；
+//   ③ 着色规则不吃 !important（整行可读性不许被强盖），也不许内联涂色。
+const severityRule = (role) => {
+  // 级联里谁最后写谁赢：同一个选择器有两条规则（旧的单色那条 + 本轮的着色那条），
+  // 取**最后**一条才是用户真正看到的颜色。
+  const marker = `[data-taskhive-codesys-workbench="true"] .taskhive-codesys-compile-line.${role}{`;
+  const at = skin.lastIndexOf(marker);
+  assert(at > 0, `编译明细的 ${role} 行必须有样式规则（${marker}）`);
+  const end = skin.indexOf('}', at);
+  assert(end > at, `${role} 行的样式规则必须闭合`);
+  return skin.slice(at + marker.length, end);
+};
+const errorRule = severityRule('is-error');
+const warningRule = severityRule('is-warning');
+const infoRule = severityRule('is-info');
+assert(/background:var\(--th-error-bg\)/.test(errorRule) && /color:var\(--th-error-ink\)/.test(errorRule),
+  `错误行必须"标红"：底色走 --th-error-bg、字色走 --th-error-ink（得到 ${errorRule}）`);
+assert(/background:var\(--th-warn-bg\)/.test(warningRule) && /color:var\(--th-warn-ink\)/.test(warningRule),
+  `警告行必须"标黄"：底色走 --th-warn-bg、字色走 --th-warn-ink（得到 ${warningRule}）`);
+assert(errorRule.includes('var(--th-error-ink)') && warningRule.includes('var(--th-warn-ink)'),
+  '错误与警告不许共用一个颜色令牌（共用了就等于没分级）');
+assert(!/background|box-shadow/.test(infoRule) && /color:var\(--th-ink-2\)/.test(infoRule),
+  `Info 行必须保持中性：只有中性字色，不许有底色或色条（得到 ${infoRule}）`);
+assert(!errorRule.includes('!important') && !warningRule.includes('!important'),
+  '着色规则不许用 !important 强盖整行可读性');
+for (const rule of [errorRule, warningRule]) {
+  assert(!/(?:^|;)(?:font|font-size|line-height|padding|height|border-width)[^:]*:/.test(rule),
+    `着色只加底与色条，不许改字号/行高/内边距（得到 ${rule}）`);
+}
+assert(!/[#][0-9a-fA-F]{3,8}/.test(`${errorRule}${warningRule}`),
+  '着色规则里不许出现颜色字面值：颜色只许来自主题令牌（别把颜色写散在业务代码里）');
+assert(!/taskhive-codesys-compile-note\.is-(?:error|warning)/.test(skin),
+  '口径说明行不许被当成错误/警告涂色（它保持中性）');
 
 process.stdout.write('codesys workbench direct-context and single-column proposal contract tests passed\n');

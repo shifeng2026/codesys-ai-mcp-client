@@ -1,11 +1,11 @@
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { readJson, writeJson } = require('./atomic-json');
 
 class MemoryStore {
   constructor(root) { this.file = path.join(root, 'knowledge', 'memory.json'); }
-  read() { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return { version: 1, entries: [] }; } }
-  write(value) { fs.writeFileSync(this.file, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); }
+  read() { return readJson(this.file, { version: 1, entries: [] }, { label: '本地记忆 knowledge/memory.json' }); }
+  write(value) { writeJson(this.file, value); }
   retain(input = {}) {
     const content = String(input.content || '').trim();
     if (!content) throw new Error('记忆内容不能为空');

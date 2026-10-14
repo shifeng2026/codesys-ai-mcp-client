@@ -11,7 +11,7 @@
 
 const assert = require('assert')
 const fs = require('node:fs')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -26,7 +26,7 @@ function makeSession(root, bucket, session, bytes, logName = 'session.v3.jsonl.z
 }
 
 async function main() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-sessions-'))
+  const home = createTempDir('taskhive-sessions-')
   const sessionsRoot = path.join(home, 'sessions')
   fs.mkdirSync(sessionsRoot, { recursive: true })
 
@@ -155,7 +155,11 @@ async function main() {
   // explains the wrong shape on purpose, and a substring check would forbid explaining it.
   assert(!client.includes('fetch(`${CODESYS_WORKBENCH_API}/sessions.'), 'no request may be built by appending the sessions path to the workbench base (that made every call 404)')
   assert(client.includes("h(SessionRecordsPanel, { ctx })"), 'the panel must be mounted through a registered tab')
-  assert(client.includes("id: 'taskhive:sessions', title: '会话记录'"), 'the tab must be registered through the official registerTab API')
+  // DSH 0.2.0-rc.1 的 slot API 是 `ctx.slots.register({ name, key }, component)`
+  // （旧的 `registerPanel(type, title, order, render, surfaceId)` 已不存在）。
+  // 意图不变：会话面板必须走官方注册 API，而不是自己注入 DOM。
+  assert(client.includes("ctx.slots.register({ name: 'main', key: entry.tabId }"), 'the tab must be registered through the official slot API')
+  assert(client.includes('registerMain(entry, view)'), 'the main slot must be filled through the shared registration helper')
   assert(!/archiveSession[\s\S]{0,200}window\.confirm/.test(client), 'the panel must not archive without the user confirmation that precedes it')
   assert(client.includes('当前打开的会话不能删除'), 'the panel must explain why the active session is not selectable')
 
@@ -165,7 +169,7 @@ async function main() {
   assert(client.includes('const SESSION_MENU_ARCHIVE_LABEL = /^(?:归档会话|Archive session)$/i'), 'the injection must fingerprint the SESSION menu by its archive item, not by generic menu markup (the Menu primitive is shared with the workspace menu)')
   assert(client.includes("clone.setAttribute('data-taskhive-session-delete', 'true')"), 'our item must be marked so re-injection stays idempotent')
   assert(client.includes('const clone = archiveItem.cloneNode(true)'), 'the item must be CLONED from the existing archive item so styling/hover come for free instead of being guessed')
-  assert(client.includes('label.textContent = SESSION_DELETE_LABEL'), 'only the label text may change on the clone')
+  assert(client.includes('leafLabel.textContent = SESSION_DELETE_LABEL'), 'only the label text may change on the clone')
   assert(client.includes('list.insertBefore(clone, archiveItem.nextSibling)'), 'the item must be inserted next to the archive entry (a session menu is open)')
   assert(client.includes('if (matches.length !== 1) {'), 'the title→session mapping must REQUIRE a unique match')
   assert(client.includes('return { ok: false, reason: matches.length ? `标题「${title}」同时对应 ${matches.length} 个会话`'), 'the refusal must state how many sessions share that title')
@@ -175,7 +179,9 @@ async function main() {
   assert(client.includes("sessionRecordsApi('purge', { targets: [{ session: resolved.id }], confirm: true, activeSessionId: active })"), 'the menu path must go through the same confirm:true purge route')
   assert(client.includes("document.addEventListener('click', rememberSessionRow, true)"), 'the row must be bound by click context (locale-independent), not by a localized aria-label')
   assert(client.includes("document.removeEventListener('click', rememberSessionRow, true)"), 'the click listener must be disposed with the skin')
-  assert(client.includes('if (sessionMenuDelete.row) injectSessionDeleteMenuItem()'), 'the injection must only run after a session row was clicked (no per-scrub document-wide menu query)')
+  assert(client.includes('if (row) sessionMenuDelete.row = row'), 'the injection must only run after a session row was clicked (no per-scrub document-wide menu query)')
+  // T128 实测修正：会话操作菜单是**点击之后**才渲染的，所以注入按延迟多次重试（幂等）。
+  assert(client.includes('setTimeout(() => { try { injectSessionDeleteMenuItem() }'), 'the injection must be retried after the menu actually renders')
 
   // ── 9. T093b: 定位必须走精确通道，标题只作退路 ────────────────────────────
   // 现场实测：菜单项注入成功，但定位失败并弹出"标题不唯一"——因为标题会真实撞车
@@ -189,7 +195,9 @@ async function main() {
   assert(client.includes('for (const child of row.children || []) {'), 'the title fallback must read a DIRECT child of the row')
   assert(client.includes("if (/title/i.test(String(child.className || ''))) return String(child.textContent || '').trim()"), 'the title fallback must match the row\'s own title slot only, never the hover-card preview')
   assert(client.includes('openSessionRecordsTab?.()'), 'a refusal must open the guaranteed path instead of dead-ending')
-  assert(client.includes("installTaskHiveSkin(ctx, () => service.openTab({ type: 'taskhive:sessions'"), 'the skin must receive the tab opener')
+  // DSH 0.2.0-rc.1: the opener handed to the skin is the `layout` service call
+  // selectPanel('taskhive:sessions'), not betterSidebar's openTab descriptor.
+  assert(client.includes("installTaskHiveSkin(ctx, () => selectPanel('taskhive:sessions'))"), 'the skin must receive the tab opener')
 
   // ── 10. T094: 应用内对话框（不许再用浏览器原生弹窗）+ 先删文件后归档 ──────
   // 用户口径："我要的是 harness 长出了新皮肤，不要给我把弹窗做成其他 ui"。

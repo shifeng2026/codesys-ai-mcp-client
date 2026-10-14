@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "directory": "C:\\Users\\29925\\Documents\\TaskHive1.0.3\\resources\\app\\models",
+  "directory": "C:\\Users\\29925\\Documents\\TaskHive1.1.0\\.repo-stage\\models",
   "defaultRoute": {
     "providerId": "codex-cli",
     "modelId": "gpt-5.5"
@@ -11,12 +11,15 @@
   },
   "visibility": {
     "codex-cli::gpt-6-astra": true,
+    "codex-cli::gpt-6-sol": true,
+    "codex-cli::gpt-6-luna": true,
     "codex-cli::gpt-5.6-sol": true,
     "codex-cli::gpt-5.6-terra": true,
     "codex-cli::gpt-5.6-luna": false,
     "codex-cli::gpt-5.5": true,
     "ollama-local::qwen2.5-coder": false,
     "ollama-local::deepseek-coder-v2": false,
+    "claude-code::fable": true,
     "claude-code::opus": true,
     "claude-code::sonnet": true,
     "claude-code::haiku": true,
@@ -28,7 +31,6 @@
     "web-ai::chatgpt-web": false,
     "web-ai::claude-web": false,
     "web-ai::gemini-web": false,
-    "modlens-vision::codex-vision-bridge": true,
     "video-local::video-generation-local": true,
     "anthropic-api::claude-sonnet-4-5": true,
     "anthropic-api::claude-opus-4-1": false,
@@ -45,6 +47,8 @@
       "contextWindow": 272000,
       "models": [
         "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -72,6 +76,7 @@
       "custom": false,
       "contextWindow": 200000,
       "models": [
+        "fable",
         "opus",
         "sonnet",
         "haiku"
@@ -95,17 +100,6 @@
         "claude-web",
         "gemini-web"
       ]
-    },
-    {
-      "id": "modlens-vision",
-      "name": "ModLens 视觉",
-      "kind": "vision",
-      "state": "unconfigured",
-      "models": [
-        "codex-vision-bridge"
-      ],
-      "custom": false,
-      "authentication": "local-cli"
     },
     {
       "id": "video-local",

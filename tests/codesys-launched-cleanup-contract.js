@@ -12,8 +12,9 @@
 
 const assert = require('node:assert')
 const fs = require('node:fs')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
+const { probeSource } = require('./lib/probe-source')
 
 const { CodesysLaunchedRegistry, classifyLaunchedInstance, processStartMatches, PID_REUSE_TOLERANCE_MS } = require('../app/codesys-launched-registry')
 
@@ -53,7 +54,7 @@ assert.strictEqual(processStartMatches(1000, 0), true, 'a missing record cannot 
 assert.deepStrictEqual(classifyLaunchedInstance({}, { running: true }), { action: 'skip', reason: 'invalid-record' })
 
 // ── The registry ────────────────────────────────────────────────────────────
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-launched-'))
+const root = createTempDir('taskhive-launched-')
 let nowValue = 1_700_000_000_000
 const registry = new CodesysLaunchedRegistry(root, { now: () => nowValue })
 assert.deepStrictEqual(registry.pending(), [], 'a fresh install has nothing to sweep')
@@ -96,7 +97,7 @@ assert(main.includes('await processStartTimeMs(pid)'), 'the PID-reuse guard must
 assert(main.includes('persistsAfterTaskHiveExit: false'), 'the lifecycle contract must state that launched instances do not outlive TaskHive')
 assert(main.includes('taskHiveMayCloseProgram: true'), 'the lifecycle contract must allow TaskHive to close what it launched')
 assert(main.includes('closePolicy: \'taskhive-closes-launched-instances-unless-unsaved\''), 'the close policy must be explicit')
-assert(main.includes('codesys.externalProgram.launchedProgramClosePolicyLabel'), 'the packaged probe must assert the new label')
+assert(probeSource.includes('codesys.externalProgram.launchedProgramClosePolicyLabel'), 'the packaged probe must assert the new label')
 const renderer = fs.readFileSync(path.resolve(__dirname, '../app/renderer/renderer.js'), 'utf8')
 assert(renderer.includes('退出 TaskHive 时会自动关闭本插件启动的实例（工程有未保存改动时保留）'), 'the panel button must state the real policy')
 

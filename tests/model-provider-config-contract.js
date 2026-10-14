@@ -13,6 +13,7 @@
 //      slot/manifest mismatch is reported instead of trusted.
 
 const assert = require('assert');
+const { registrationIndex, isRegistered } = require('./lib/source-anchors');
 const { existsSync, readFileSync } = require('fs');
 const { join } = require('path');
 
@@ -51,8 +52,8 @@ assert(/if \(endpoint\) entry\.endpoint = endpoint/.test(main), 'the endpoint mu
 assert(/entry\.apiKeyEnv = apiKeyEnv/.test(main), 'the key env var name must be persisted on the provider');
 assert(/entry\.protocol = protocol/.test(main), 'the wire protocol must be persisted on the provider');
 assert(/kind === 'cli'\) throw new Error\('自定义 CLI/.test(main), 'an inert custom CLI provider must be rejected with a clear message rather than created');
-assert(main.includes("ipcMain.handle('models:set-credential'"), 'there must be a way to set or clear a credential for an existing provider');
-const credentialHandler = main.slice(main.indexOf("ipcMain.handle('models:set-credential'"));
+assert(isRegistered(main, 'models:set-credential'), 'there must be a way to set or clear a credential for an existing provider');
+const credentialHandler = main.slice(registrationIndex(main, 'models:set-credential'));
 assert(/restartHarnessRuntime\('model-credential'\)/.test(credentialHandler), 'setting a credential must restart the Harness so it sees the key');
 // A restart binds a new port, so the window must be re-pointed at it or the page
 // keeps talking to a dead server.
@@ -80,7 +81,7 @@ assert(/provider\.state = resolveConfiguredState\(provider\)/.test(main), 'model
 assert(/if \(\['api', 'local'\]\.includes\(provider\.kind\)\) provider\.state = resolveConfiguredState\(provider\)/.test(main), 'models:select must recompute readiness too');
 
 // ── 4. The raw key never leaves the main process ───────────────────────────
-const listHandler = main.slice(main.indexOf("ipcMain.handle('models:list'"), main.indexOf("ipcMain.handle('models:select'"));
+const listHandler = main.slice(registrationIndex(main, 'models:list'), registrationIndex(main, 'models:select'));
 assert(/decorateProviderCredentials\(catalog\)/.test(listHandler), 'models:list must decorate the catalog with masked credentials');
 assert(!/apiKey\s*:/.test(listHandler), 'models:list must not attach a raw apiKey field');
 assert(/provider\.apiKeyMasked = maskApiKey\(key\)/.test(main), 'only a masked key may be exposed');

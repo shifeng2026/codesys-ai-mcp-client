@@ -23,8 +23,10 @@ const selected = resolvePowerShell7({
   exists: (candidate) => versions.has(path.resolve(candidate).toLowerCase()),
   run: (candidate) => ({ status: 0, stdout: versions.get(path.resolve(candidate).toLowerCase()) || '' }),
 });
-assert.strictEqual(selected.version, '7.6.5');
-assert.strictEqual(selected.command.toLowerCase(), path.resolve('C:\\PowerShell-765\\pwsh.exe').toLowerCase());
+// T152：解析改为**首个命中即返回**（显式配置 / PATH 的顺序本身就是用户偏好），不再比较版本高低。
+// 因此这里是 TASKHIVE_PWSH_BIN 指定的 7.3.9 胜出，而不是版本最高的 7.6.5。
+assert.strictEqual(selected.version, '7.3.9');
+assert.strictEqual(selected.command.toLowerCase(), path.resolve('C:\\PowerShell-73\\pwsh.exe').toLowerCase());
 assert.strictEqual(selected.edition, 'Core');
 assert.strictEqual(selected.ready, true);
 

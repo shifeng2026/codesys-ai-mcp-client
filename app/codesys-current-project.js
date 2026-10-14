@@ -247,10 +247,17 @@ function discoverCurrentCodesysProject(windows, preferredWindowId = '', options 
   // project — so the recent list doubles as the directory seed set.
   let openProjects = openProjectsFromLocks([...new Set(projectPaths.map((value) => path.dirname(value)))]);
   // The workbench only ever works with a CODESYS instance THIS plugin started
-  // ("工作台只能绑定由当前插件打开的 CODESYS 窗口"). `monitor.listWindows()` is
-  // already restricted to plugin-owned HWNDs; the marker scan must be too,
-  // otherwise a project open in the user's OWN CODESYS instance would be offered
-  // for binding. Filtering by the owned PIDs keeps both halves on the same scope.
+  // ("工作台只能绑定由当前插件打开的 CODESYS 窗口"). The `.~u` marker scan must be
+  // restricted to plugin-owned PIDs, otherwise a project open in the user's OWN
+  // CODESYS instance would be offered for binding.
+  //
+  // T207（更正这里的一句旧注释）：本节以前写的是 "`monitor.listWindows()` is already
+  // restricted to plugin-owned HWNDs"，那句话从 T137 起就不成立了 —— `listWindows()` 为了
+  // 面板下拉会把外部窗口一起返回（`owned:false`），归属过滤只发生在
+  // `ownsWindow()` / `resolveOwnedWindow()` 上，`resolveWindow()` 不做。窗口那一侧的范围
+  // 由**调用方**收紧（`main.js` 的 `codesys:current-project`：没有显式选择时只把
+  // `owned !== false` 的窗口交给本模块，外部窗口必须用户显式点选才参与），本模块只负责
+  // PID 白名单这一半；两半合起来才是同一个范围。
   const ownedPids = Array.isArray(options.ownedPids) ? options.ownedPids.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0) : null;
   if (ownedPids) openProjects = openProjects.filter((entry) => ownedPids.includes(Number(entry.pid)));
   const result = resolveCurrentCodesysProject(windows, projectPaths, preferredWindowId, openProjects);

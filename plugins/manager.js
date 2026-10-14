@@ -5,10 +5,8 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
-
-function safeId(value) {
-  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-}
+// T155：与 repositories/manager.js 共享的实现（safeId / 原子 JSON / 备份保留策略）。
+const { safeId, readJsonFile, writeJsonFile, moveToBackup } = require('./catalog-shared');
 
 class PluginManager {
   constructor(root) {
@@ -22,13 +20,13 @@ class PluginManager {
   }
 
   readCatalog() {
-    try { return JSON.parse(fs.readFileSync(this.catalogPath, 'utf8')); } catch { return { version: 1, plugins: {} }; }
+    // T155：走 atomic-json（旧实现读取失败静默回默认值 —— 一次半截写就会让下次保存把空目录写回，
+    // 整个插件目录清单会被抹掉）。
+    return readJsonFile(this.catalogPath, { version: 1, plugins: {} }, '插件目录 plugins/catalog.json');
   }
 
   writeCatalog(catalog) {
-    const temp = `${this.catalogPath}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(catalog, null, 2), 'utf8');
-    fs.renameSync(temp, this.catalogPath);
+    writeJsonFile(this.catalogPath, catalog);
   }
 
   manifestFrom(dir) {
@@ -61,7 +59,10 @@ class PluginManager {
         type,
         health: !installed ? 'missing' : state === 'enabled' ? 'healthy' : state,
         placement: item.placement || ui.defaultPlacement || 'hidden',
-        entryConfigurable: ui.visible === true && allowedPlacements.length > 0,
+        // T136：入口位置下拉只对 **TaskHive 真正接管的 surface** 显示。
+        // 判据与 main.js `surfaceDescriptors()` 保持一致（那里同样排除 plugin-manager），
+        // 否则会给 plugin-manager 这类宿主自管的插件显示一个改了也不生效的下拉（空操作）。
+        entryConfigurable: item.id !== 'plugin-manager' && ui.visible === true && allowedPlacements.length > 0,
         ui,
       };
     });
@@ -74,6 +75,9 @@ class PluginManager {
     if (!item) throw new Error(`插件未注册：${safe}`);
     const ui = item.ui || {};
     const allowed = Array.isArray(ui.allowedPlacements) ? ui.allowedPlacements : [];
+    // T136：与 list() 的 entryConfigurable 判断保持同一规则 —— 宿主自管的 surface
+    //（plugin-manager）不接受改位置，否则是"看起来成功、实际不生效"。
+    if (safe === 'plugin-manager') throw new Error(`插件入口由宿主管辖，无法配置位置：${safe}`);
     if (ui.kind === 'tool/service-only' || ui.kind === 'settings-only' || allowed.length === 0) throw new Error(`插件没有可配置的界面入口：${safe}`);
     if (!allowed.includes(placement)) throw new Error(`无效入口位置：${placement}`);
     catalog.plugins[safe] = { ...item, placement, placementUpdatedAt: new Date().toISOString() };
@@ -85,9 +89,9 @@ class PluginManager {
     const safe = safeId(id);
     const catalog = this.readCatalog();
     const item = catalog.plugins[safe];
-    if (!item) throw new Error(`鎻掍欢鏈敞鍐岋細${safe}`);
+      if (!item) throw new Error(`插件未注册：${safe}`);
     const nextOrder = Number(order);
-    if (!Number.isInteger(nextOrder) || nextOrder < 0 || nextOrder > 9999) throw new Error(`鏃犳晥鎻掍欢椤哄簭锛細${order}`);
+      if (!Number.isInteger(nextOrder) || nextOrder < 0 || nextOrder > 9999) throw new Error(`无效插件顺序：${order}`);
     catalog.plugins[safe] = { ...item, order: nextOrder, orderUpdatedAt: new Date().toISOString() };
     this.writeCatalog(catalog);
     return catalog.plugins[safe];
@@ -175,8 +179,7 @@ class PluginManager {
     const catalog = this.readCatalog();
     if (catalog.plugins[id]?.protected) throw new Error(`系统组件不能被普通安装覆盖：${id}`);
     if (fs.existsSync(target)) {
-      const backup = path.join(this.backups, `${id}-${Date.now()}`);
-      fs.renameSync(target, backup);
+      moveToBackup(target, this.backups, id);
     }
     fs.renameSync(staged, target);
     const digest = crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
@@ -195,8 +198,7 @@ class PluginManager {
     if (catalog.plugins[safe]?.protected) throw new Error(`系统组件不能卸载：${safe}`);
     const target = path.join(this.installed, safe);
     if (!fs.existsSync(target)) throw new Error(`插件未安装：${safe}`);
-    const backup = path.join(this.backups, `${safe}-${Date.now()}`);
-    fs.renameSync(target, backup);
+    const backup = moveToBackup(target, this.backups, safe);
     if (catalog.plugins[safe]) catalog.plugins[safe] = { ...catalog.plugins[safe], state: 'uninstalled', backup, uninstalledAt: new Date().toISOString() };
     this.writeCatalog(catalog);
     return catalog.plugins[safe] || { id: safe, state: 'uninstalled', backup };

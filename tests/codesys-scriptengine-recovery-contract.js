@@ -14,12 +14,12 @@
 
 const assert = require('node:assert')
 const fs = require('node:fs')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 
 const { CodesysScriptEngine } = require('../plugins/installed/codesys-monitor/scriptengine.cjs')
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-engine-recovery-'))
+const root = createTempDir('taskhive-engine-recovery-')
 const jobDir = path.join(root, 'workspaces', 'codesys-scriptengine', 'jobs', 'direct-fixture')
 fs.mkdirSync(jobDir, { recursive: true })
 

@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
+const { readJson, writeJson } = require('./atomic-json');
 
 const DEFAULTS = Object.freeze([
   ['program', '程序本体', 'program', '.'],
   ['plugins', '插件目录', 'app', 'plugins'],
   ['models', '模型目录', 'app', 'models'],
   ['knowledge', '知识库目录', 'app', 'knowledge'],
-  ['experts', '专家目录', 'app', 'experts'],
   ['videoModels', '视频模型', 'app', 'video-models'],
   ['workspaces', '工作区', 'app', 'workspaces'],
   ['profiles', '配置目录', 'app', 'profiles'],
@@ -18,9 +18,13 @@ function validGitUrl(value) {
 }
 
 class DirectoryStore {
-  constructor(root, programRoot = root) {
+  constructor(root, programRoot = root, options = {}) {
     this.root = path.resolve(root);
     this.programRoot = path.resolve(programRoot);
+    // Damage to this file is reported through the caller's bootstrap log rather
+    // than being silently absorbed, because "restored to defaults" and "the
+    // user really has no custom directories" must not look the same.
+    this.onProblem = typeof options.onProblem === 'function' ? options.onProblem : null;
     this.file = path.join(this.root, 'profiles', 'directories.json');
     if (!fs.existsSync(this.file)) this.write(this.defaults());
   }
@@ -65,17 +69,20 @@ class DirectoryStore {
     };
   }
 
+  // A missing file falls back to the defaults (first run); a damaged file is
+  // quarantined and recovered from the last good generation instead of being
+  // silently replaced by defaults that the next save would then persist.
   read() {
-    try {
-      return this.normalizePortable(JSON.parse(fs.readFileSync(this.file, 'utf8')));
-    } catch {
-      return this.defaults();
-    }
+    return this.normalizePortable(readJson(this.file, this.defaults(), {
+      label: '目录配置 profiles/directories.json',
+      onProblem: this.onProblem,
+    }));
   }
 
+  // Written through a temp file + rename so an interrupted save cannot truncate
+  // the directory list.
   write(value) {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    writeJson(this.file, value);
     return this.normalizePortable(value);
   }
 

@@ -43,9 +43,11 @@ assert(
   "the retired-id set must contain 'deepseek-api'"
 );
 // The set has to be *applied* to the persisted providers, not merely declared:
-// `.filter((provider) => !RETIRED_CATALOG_PROVIDER_IDS.has(provider?.id))`.
+// `providers: <persisted>.providers.filter((provider) => !RETIRED_CATALOG_PROVIDER_IDS.has(provider?.id))`.
+// The persisted catalog is bound to a named local (currently `savedCatalog`), so
+// the identifier is matched generically rather than pinned to one spelling.
 assert(
-  /providers:\s*saved\.providers\.filter\(/.test(main)
+  /providers:\s*[A-Za-z_$][\w$]*\.providers\.filter\(/.test(main)
     && /RETIRED_CATALOG_PROVIDER_IDS\.has\(/.test(main),
   'the persisted providers must be filtered through the retired-id set, not merely defined'
 );
@@ -57,10 +59,14 @@ const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
 const ids = (catalog.providers || []).map((provider) => provider.id);
 assert(!ids.includes('deepseek-api'), 'the shipped catalog must not declare deepseek-api');
 
-const expected = ['codex-cli', 'claude-code', 'web-ai', 'modlens-vision', 'video-local', 'anthropic-api', 'ollama-local'];
+// 用户的删除要求（2026-10）：ModLens 插件删除后 `modlens-vision` 也进了
+// RETIRED_CATALOG_PROVIDER_IDS，所以这里不再列出它 —— 该断言问的是"退役 deepseek-api
+// 有没有顺手带走别人"，`modlens-vision` 现在是**被有意退役**的那一类。
+const expected = ['codex-cli', 'claude-code', 'web-ai', 'video-local', 'anthropic-api', 'ollama-local'];
 for (const id of expected) {
   assert(ids.includes(id), `retiring the duplicate must not remove ${id} (catalog has: ${ids.join(', ')})`);
 }
+assert(!ids.includes('modlens-vision'), 'modlens-vision must be retired from the shipped catalog');
 assert.strictEqual(ids.length, expected.length, `catalog must declare exactly ${expected.length} providers, found ${ids.length}: ${ids.join(', ')}`);
 
 // A stale visibility entry is the other half of a persisted copy: the map is

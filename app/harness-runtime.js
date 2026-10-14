@@ -6,6 +6,8 @@ const { spawn, execFile } = require('child_process');
 const { promisify } = require('util');
 
 const execFileAsync = promisify(execFile);
+// T153：harness-runtime 的三处日志原先裸 `appendFileSync`，绕过 2MB×2 轮转。
+const { appendDiagnosticLog } = require('./diagnostic-log');
 
 function reservePort() {
   return new Promise((resolve, reject) => {
@@ -79,8 +81,23 @@ class HarnessRuntime {
     const source = path.join(this.root, 'profiles', 'dsh', 'profiles', 'web');
     const destination = path.join(this.dshHome, 'profiles', 'web');
     fs.mkdirSync(destination, { recursive: true });
+    // The native Agent Teams overlay is a --patch file that lives directly under
+    // dshHome (sibling of taskhive.patch.yml), not under profiles/web, so it
+    // seeds on its own path with the same "only when absent" rule.
+    const teamPatchFrom = path.join(this.root, 'profiles', 'dsh', 'team.patch.yml');
+    const teamPatchTo = path.join(this.dshHome, 'team.patch.yml');
+    if (fs.existsSync(teamPatchFrom) && !fs.existsSync(teamPatchTo)
+      && path.resolve(teamPatchFrom).toLowerCase() !== path.resolve(teamPatchTo).toLowerCase()) {
+      fs.copyFileSync(teamPatchFrom, teamPatchTo);
+    }
     if (!fs.existsSync(source) || path.resolve(source).toLowerCase() === path.resolve(destination).toLowerCase()) return;
-    for (const name of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml']) {
+    // compatibility.json carries this release's exact-version plugin exemptions.
+    // DSH 0.2.0-rc.1 refuses to activate a plugin whose declared @deepseek-ai
+    // peer range predates the runtime, and TaskHive's bundled plugins were built
+    // against the 0.1.x peer ranges: without this file the sidebar, memory and
+    // distill plugins are disabled at boot. It is seeded like the other profile
+    // files and only when absent, so a user's own grants are never overwritten.
+    for (const name of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'compatibility.json']) {
       const from = path.join(source, name);
       const to = path.join(destination, name);
       if (fs.existsSync(from) && !fs.existsSync(to)) fs.copyFileSync(from, to);
@@ -108,12 +125,30 @@ class HarnessRuntime {
     // before `this.process` is assigned, so a second DSH server was spawned and
     // the first one leaked.
     if (this.starting) return this.starting;
-    this.starting = this.launch();
+    const pending = this.launch();
+    this.starting = pending;
     try {
-      return await this.starting;
+      return await pending;
     } finally {
-      this.starting = null;
+      // T151：只有"自己那一份"才能清空。旧代码无条件 `this.starting = null`，
+      // 并发 start（重启 + 模型目录刷新 + 插件启停）交错时，先完成者的 finally 会把
+      // 后来者的 promise 清成 null；此时第三个 start() 趁 `launch()` 还在 `await
+      // reservePort()`（`this.process` 尚未赋值）通过守卫，**就会再启一个 DSH 服务器**。
+      if (this.starting === pending) this.starting = null;
     }
+  }
+
+  // T151：kill 之后等子进程真正退出。taskkill 因权限/句柄失败时进程仍活着，
+  // 而旧 stop() 无条件丢句柄 → 端口与数百 MB 内存泄漏，且 status() 谎报 stopped。
+  async waitForExit(timeoutMs) {
+    const child = this.process;
+    if (!child) return true;
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode) return true;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    return child.exitCode !== null || Boolean(child.signalCode);
   }
 
   async launch() {
@@ -134,7 +169,7 @@ class HarnessRuntime {
       ? configuredTimeout
       : 180000;
     const launchStartedAt = Date.now();
-    fs.appendFileSync(path.join(this.root, 'logs', 'harness-runtime.log'), `${new Date().toISOString()} launch slot=${this.slotRoot} bin=${this.binPath} electron=${process.execPath}\n`, 'utf8');
+    appendDiagnosticLog(path.join(this.root, 'logs', 'harness-runtime.log'), `${new Date().toISOString()} launch slot=${this.slotRoot} bin=${this.binPath} electron=${process.execPath}\n`);
     if (!fs.existsSync(this.binPath)) throw new Error(`DSH runtime missing: ${this.binPath}`);
     this.port = await reservePort();
     fs.mkdirSync(this.dshHome, { recursive: true });
@@ -166,7 +201,12 @@ class HarnessRuntime {
     // catalog refresh does exactly that), and it nulls `this.process`; reading
     // the child through the local binding keeps the readiness loop from
     // dereferencing null, and the superseded check below reports it honestly.
-    const child = spawn(process.execPath, ['--expose-internals', this.binPath, '--profile', 'web', '--patch', this.patchPath, '--host', '127.0.0.1', '--port', String(this.port), '--no-open'], {
+    // Native Agent Teams overlay: DSH's --patch is repeatable, so the team rows
+    // ride their own shipped file (taskhive.patch.yml is regenerated on every
+    // launch and would drop them). Guarded with existsSync because DSH errors on
+    // a missing patch path.
+    const teamPatchPath = path.join(this.dshHome, 'team.patch.yml');
+    const child = spawn(process.execPath, ['--expose-internals', this.binPath, '--profile', 'web', '--patch', this.patchPath, ...(fs.existsSync(teamPatchPath) ? ['--patch', teamPatchPath] : []), '--host', '127.0.0.1', '--port', String(this.port), '--no-open'], {
       cwd: this.dshHome,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -176,11 +216,11 @@ class HarnessRuntime {
     // Without an 'error' listener a spawn failure (missing binary, EACCES on a
     // locked exec path) emits an unhandled 'error' event that kills the host.
     child.on('error', (error) => {
-      fs.appendFileSync(path.join(this.root, 'logs', 'errors.log'), `${new Date().toISOString()} DSH spawn error ${error.stack || error}\n`, 'utf8');
+      appendDiagnosticLog(path.join(this.root, 'logs', 'errors.log'), `${new Date().toISOString()} DSH spawn error ${error.stack || error}\n`);
     });
     const log = (chunk) => {
       const text = chunk.toString();
-      fs.appendFileSync(path.join(this.root, 'logs', 'harness-runtime.log'), text, 'utf8');
+      appendDiagnosticLog(path.join(this.root, 'logs', 'harness-runtime.log'), text);
       const match = text.match(/dsh web:\s+(http:\/\/127\.0\.0\.1:\d+\/\?token=[^\s]+)/);
       if (match) {
         this.authUrl = match[1].trim();
@@ -227,6 +267,13 @@ class HarnessRuntime {
     if (process.platform === 'win32') {
       try { await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }); } catch { /* process may have exited */ }
     } else this.process.kill('SIGTERM');
+    // T151：复核是否真的退出了。仍存活时记录 + 保留 PID（供下次 stop/诊断），
+    // 而不是悄悄丢句柄让进程变成孤儿。
+    const exited = await this.waitForExit(3000);
+    if (!exited) {
+      this.orphanPids = [...(this.orphanPids || []), pid];
+      try { fs.appendFileSync(path.join(this.root, 'logs', 'errors.log'), `${new Date().toISOString()} harness-stop pid=${pid} still alive after kill (orphan kept for retry)\n`, 'utf8'); } catch { /* logging must not throw */ }
+    }
     this.process = null;
     clearAddress();
   }

@@ -2,67 +2,22 @@
 
 // Regression contract for "switching a surface must never pop up the terminal".
 //
-// The bottom panel hosting a terminal lives in the bundled better-sidebar
-// plugin. The "first bottom-panel expansion opens a terminal" feature is gone
-// (its locale strings survive, its consumer does not), so the only thing left
-// of it is the `bottomPanelAutoTerminal` preference. Every layer must agree
-// that this preference is OFF, and no surface/session/tab change may click the
-// bottom-panel toggle or open a terminal tab on its own.
+// 历史：底部面板原先由 bundled `better-sidebar` 插件承载（该插件已随 T132 移除，
+// 面板现在是 DSH 0.2 原生面板）。因此针对 better-sidebar 各层 `bottomPanelAutoTerminal`
+// 默认值的断言整段删除 —— 那些文件已不存在，保留它们只会让套件红着而失去信号。
+//
+// 仍然成立的**不变量**（对着当前客户端断言）：
+//   · TaskHive 的 surface 切换只允许**收起**底部面板，绝不允许展开它；
+//   · 唯一的终端打开入口是显式桥（`__TASKHIVE_OPEN_TERMINAL__` → selectPanel('taskhive:terminal')）；
+//   · surface 切换路径不得出现终端 / 开新页签。
 
 const assert = require('assert');
 const { readFileSync } = require('fs');
 const { join } = require('path');
 
-const sidebarRoot = join(__dirname, '..', 'plugins', 'installed', 'better-sidebar');
-const surfacesClientPath = join(__dirname, '..', 'plugins', 'installed', 'taskhive-surfaces', 'dsh', 'client.js');
-const read = (path) => readFileSync(path, 'utf8');
-const readSidebar = (relative) => read(join(sidebarRoot, relative));
+const surfaces = readFileSync(join(__dirname, '..', 'plugins', 'installed', 'taskhive-surfaces', 'dsh', 'client.js'), 'utf8');
 
-// ── 1. The host schema default must be OFF, not the legacy ON ───────────────
-// (lib/index.js is the schema the settings service validates/resolves with;
-// a `true` here overrode the client default for every fresh profile.)
-for (const relative of ['lib/index.js', 'src/config.ts']) {
-  const source = readSidebar(relative);
-  assert(
-    /bottomPanelAutoTerminal:\s*z\.boolean\(\)\.default\(false\)/.test(source),
-    `${relative} must default bottomPanelAutoTerminal to false`,
-  );
-  assert(
-    !/bottomPanelAutoTerminal:\s*z\.boolean\(\)\.default\(true\)/.test(source),
-    `${relative} keeps the legacy auto-terminal default`,
-  );
-}
-
-// ── 2. The client and client-registry defaults must be OFF too ──────────────
-for (const relative of ['src/prefs-shared.ts', 'lib/client.js', 'lib/client-registry.js']) {
-  const source = readSidebar(relative);
-  assert(
-    source.includes('bottomPanelAutoTerminal: false'),
-    `${relative} must default bottomPanelAutoTerminal to false`,
-  );
-  assert(
-    !source.includes('bottomPanelAutoTerminal: true'),
-    `${relative} must not default bottomPanelAutoTerminal to true`,
-  );
-}
-
-// ── 3. No layout change may auto-open the bottom panel / a terminal ─────────
-for (const relative of ['src/client/Sidebar.tsx', 'lib/client.js', 'lib/client-registry.js']) {
-  const source = readSidebar(relative);
-  assert(
-    !source.includes('bottomOpenedOnce: true'),
-    `${relative} can still open a terminal on a layout change`,
-  );
-}
-
-// ── 4. No surface-switch code path may OPEN the bottom panel ───────────────
-const TOGGLE_CLICK = /\[data-dsh-bottom-panel-toggle\][^;]{0,80}?\.click\(\)/;
-for (const relative of ['lib/client.js', 'lib/client-registry.js']) {
-  assert(!TOGGLE_CLICK.test(readSidebar(relative)), `${relative} clicks the bottom-panel toggle`);
-}
-
-// The TaskHive surfaces client is allowed to COLLAPSE the panel, and must never
-// EXPAND it.
+// ── 1. TaskHive 客户端只能**收起**底部面板，且只允许有一处引用 ───────────────
 //
 // Collapsing is required for the user-visible guarantee: a plugin surface only
 // CSS-hides the panel (`visibility: hidden`) and the sidebar persists
@@ -70,7 +25,6 @@ for (const relative of ['lib/client.js', 'lib/client-registry.js']) {
 // moment the user switches back to chat — which is exactly the reported
 // "a terminal pops up when switching interfaces". Closing it on surface entry
 // removes anything to reveal.
-const surfaces = read(surfacesClientPath);
 const toggleUses = surfaces.match(/data-dsh-bottom-panel-toggle/g) || [];
 assert.strictEqual(
   toggleUses.length,
@@ -92,7 +46,7 @@ assert(closeBody.includes('.click()'), 'the collapse helper must actually collap
 assert(!/bottomOpen\s*:\s*true/.test(surfaces), 'the surfaces client must not force the bottom panel open');
 assert(!/expandBottomPanel/.test(surfaces), 'the surfaces client must not expand the bottom panel');
 
-// ── 5. The TaskHive surface switch must never open a terminal tab ───────────
+// ── 2. The TaskHive surface switch must never open a terminal tab ───────────
 for (const name of ['setPluginSurfaceMode', 'openSurface']) {
   const start = surfaces.indexOf(`function ${name}(`);
   assert(start !== -1, `the TaskHive surfaces client must define ${name}`);
@@ -106,8 +60,14 @@ for (const name of ['setPluginSurfaceMode', 'openSurface']) {
 // The single terminal open left in the TaskHive client is the explicit bridge
 // the desktop probe drives; it is unreachable from a surface switch and must
 // keep working (the user's deliberate "open terminal" affordance).
-const terminalOpens = surfaces.match(/openTab\(\{[^}]*type:\s*['"]terminal['"]/g) || [];
-assert.strictEqual(terminalOpens.length, 1, 'only the explicit terminal bridge may open a terminal tab');
+//
+// DSH 0.2.0-rc.1 removed better-sidebar's openTab({ type: 'terminal' }): the
+// terminal is a registered panel now, so the one explicit open is
+// selectPanel('taskhive:terminal') behind the same bridge. The tab route must be
+// gone entirely — that is the same invariant, against the 0.2 mechanism.
+const terminalBridgeOpens = surfaces.match(/selectPanel\('taskhive:terminal'\)/g) || [];
+assert.strictEqual(terminalBridgeOpens.length, 1, 'only the explicit terminal bridge may open the terminal panel');
+assert(!/openTab\(\{[^}]*type:\s*['"]terminal['"]/.test(surfaces), 'the 0.2 client must not open a terminal tab through openTab');
 assert(surfaces.includes('__TASKHIVE_OPEN_TERMINAL__'), 'the explicit terminal bridge must keep working');
 
 console.log('terminal panel autostart contract passed');

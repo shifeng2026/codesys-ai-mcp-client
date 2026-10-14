@@ -5,5 +5,5 @@
   "entry": "central-surface",
   "capabilities": ["surface", "plugin.lifecycle"],
   "ui": { "kind": "surface", "surface": "packages", "visible": true, "defaultPlacement": "left", "allowedPlacements": ["left", "right", "hidden"] },
-  "description": "插件、知识库和专家仓库生命周期管理"
+  "description": "插件与知识库仓库生命周期管理"
 }

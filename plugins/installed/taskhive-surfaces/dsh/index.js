@@ -7,23 +7,22 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 
 export const name = 'taskhive-surfaces'
-export const inject = ['tools', 'subagents', 'llm', 'sessions', 'settings', 'permissionPresets']
+export const inject = ['tools', 'sessions', 'settings', 'permissionPresets']
 
 const root = () => process.env.TASKHIVE_ROOT ? process.env.TASKHIVE_ROOT : process.cwd()
 const require = createRequire(import.meta.url)
 const allowedExtensions = new Set(['.md', '.txt', '.json'])
 const AUTO_CONVERSATION_KNOWLEDGE = false
-const EXPERT_CONTEXT_BUDGET = Object.freeze({ taskChars: 4000, upstreamChars: 4000, knowledgeChars: 3000, knowledgeResults: 3 })
 // knowledge/cards.json is append-only in normal use; cap it so the file cannot
 // grow without bound. Candidates still awaiting review (non-terminal status)
 // outrank finished ones when the oldest cards are pruned.
 const KNOWLEDGE_CARD_LIMIT = 500
 const TERMINAL_CARD_STATUSES = Object.freeze(new Set(['rejected', 'archived', 'superseded', 'closed', 'withdrawn']))
 
-// retainExpertCandidate is called once per successful stage, and runExpertTeam
-// fans stages out with Promise.all, so two retained cards can be in flight at
-// once. Serialise the whole read-modify-write here: an interleaved
-// read-then-write would silently drop the other caller's card.
+// retainKnowledgeCandidate is called from the conversation knowledge sink, and
+// two retained cards can be in flight at once. Serialise the whole
+// read-modify-write here: an interleaved read-then-write would silently drop the
+// other caller's card.
 let knowledgeWriteQueue = Promise.resolve()
 
 function readJson(file, fallback) {
@@ -45,11 +44,11 @@ function enabledRepositoryIds(kind) {
   return new Set(Object.values(catalog.repositories || {}).filter((item) => item.state === 'enabled').map((item) => item.id))
 }
 
-function searchDocuments(kind, query, limit = 8) {
-  const base = join(root(), kind === 'knowledge' ? 'knowledge' : 'experts', kind === 'knowledge' ? 'repositories' : 'installed')
+function searchDocuments(query, limit = 8) {
+  const base = join(root(), 'knowledge', 'repositories')
   const needle = String(query || '').trim().toLowerCase()
-  if (!needle) return { kind, query: '', hits: [], scannedFiles: 0 }
-  const enabled = enabledRepositoryIds(kind)
+  if (!needle) return { kind: 'knowledge', query: '', hits: [], scannedFiles: 0 }
+  const enabled = enabledRepositoryIds('knowledge')
   const files = [...enabled].flatMap((id) => filesUnder(join(base, id)))
   const terms = [...new Set(needle.split(/\s+/).filter((term) => term.length >= 2))]
   const ranked = []
@@ -63,19 +62,17 @@ function searchDocuments(kind, query, limit = 8) {
     const start = Math.max(0, index - 120)
     ranked.push({ score: matched.length, file: relative(root(), file).replaceAll('\\', '/'), snippet: text.slice(start, index + matched[0].length + 240).replace(/\s+/g, ' ').trim() })
   }
-  if (kind === 'knowledge') {
-    const cards = readJson(join(root(), 'knowledge', 'cards.json'), { cards: [] }).cards || []
-    for (const card of cards.filter((item) => item.status !== 'rejected')) {
-      const text = `${card.title}\n${card.content}\n${(card.tags || []).join(' ')}`
-      const lowered = text.toLowerCase()
-      const matched = terms.filter((term) => lowered.includes(term))
-      if (!matched.length) continue
-      const index = lowered.indexOf(matched[0])
-      ranked.push({ score: matched.length + (card.status === 'approved' ? 1 : 0), file: `knowledge/cards.json#${card.id}`, snippet: text.slice(Math.max(0, index - 120), index + matched[0].length + 240).replace(/\s+/g, ' ').trim(), status: card.status })
-    }
+  const cards = readJson(join(root(), 'knowledge', 'cards.json'), { cards: [] }).cards || []
+  for (const card of cards.filter((item) => item.status !== 'rejected')) {
+    const text = `${card.title}\n${card.content}\n${(card.tags || []).join(' ')}`
+    const lowered = text.toLowerCase()
+    const matched = terms.filter((term) => lowered.includes(term))
+    if (!matched.length) continue
+    const index = lowered.indexOf(matched[0])
+    ranked.push({ score: matched.length + (card.status === 'approved' ? 1 : 0), file: `knowledge/cards.json#${card.id}`, snippet: text.slice(Math.max(0, index - 120), index + matched[0].length + 240).replace(/\s+/g, ' ').trim(), status: card.status })
   }
   const hits = ranked.sort((left, right) => right.score - left.score).slice(0, Math.max(1, Math.min(20, Number(limit) || 8))).map(({ score, ...hit }) => ({ ...hit, matchedTerms: score }))
-  return { kind, query: String(query || ''), hits, scannedFiles: files.length }
+  return { kind: 'knowledge', query: String(query || ''), hits, scannedFiles: files.length }
 }
 
 function repositoryAudit(kind) {
@@ -124,7 +121,7 @@ function withKnowledgeLock(action) {
 // Returns a promise for the retained card — the existing card when the same
 // evidence was already stored, null when there is nothing to retain. Callers
 // await it; the card they receive is unchanged.
-async function retainExpertCandidate({ task, result, parentSessionId, modelId, source = 'harness-expert-run', type = 'expert-result', tags = ['专家', '待审核'], titlePrefix = '专家执行候选' }) {
+async function retainKnowledgeCandidate({ task, result, parentSessionId, modelId, source = 'harness-conversation-auto-summary', type = 'conversation-summary', tags = ['对话沉淀', '待审核'], titlePrefix = '对话总结候选' }) {
   const content = String(result || '').trim().slice(0, 12000)
   if (!task || !content) return null
   return withKnowledgeLock(() => {
@@ -178,7 +175,7 @@ function installConversationKnowledgeSink(ctx) {
       if (!current?.assistant.length) return
       const task = current.user.at(-1) || '对话任务'
       const result = current.assistant.at(-1)
-      retainExpertCandidate({ task, result: `问题：${task}\n\n结论：${result}`, parentSessionId: sessionId, modelId: current.modelId, source: 'harness-conversation-auto-summary', type: 'conversation-summary', tags: ['对话沉淀', '待审核'], titlePrefix: '对话总结候选' })
+      retainKnowledgeCandidate({ task, result: `问题：${task}\n\n结论：${result}`, parentSessionId: sessionId, modelId: current.modelId, source: 'harness-conversation-auto-summary', type: 'conversation-summary', tags: ['对话沉淀', '待审核'], titlePrefix: '对话总结候选' })
         .catch((error) => console.error(`[taskhive-surfaces] conversation knowledge retention failed: ${error.message}`))
     }, 1200))
   })
@@ -197,325 +194,6 @@ function codesysScriptEngine() {
   const modulePath = existsSync(installedPath) ? installedPath : sourceFallback
   const { CodesysScriptEngine } = require(modulePath)
   return new CodesysScriptEngine(root())
-}
-
-function expertDispatch(args = {}) {
-  const data = readJson(join(root(), 'experts', 'experts.json'), { teams: [], experts: [] })
-  if (enabledRepositoryIds('experts').size === 0) return { status: 'disabled', reason: 'no-enabled-expert-repository', execution: 'harness-single-session-dispatch-plan', agentLoop: 'Harness/DSH', team: {}, safetyPolicy: { defaultActionLevel: 'L0', realDeviceWrite: false }, knowledgeEvidence: { query: String(args.task || ''), hits: [], scannedFiles: 0 }, task: String(args.task || ''), requiresHumanApproval: true }
-  const team = data.teams.find((item) => item.id === (args.teamId || data.selectedTeamId)) || data.teams[0]
-  if (!team) return { status: 'unavailable', reason: 'no-expert-team' }
-  const requested = String(args.task || '').trim()
-  const knowledge = requested ? searchDocuments('knowledge', requested.slice(0, EXPERT_CONTEXT_BUDGET.taskChars), EXPERT_CONTEXT_BUDGET.knowledgeResults) : { hits: [], scannedFiles: 0, query: '' }
-  return {
-    status: data.teamEnabled === false ? 'disabled' : 'ready',
-    execution: 'harness-single-session-dispatch-plan',
-    agentLoop: 'Harness/DSH',
-    team: { id: team.id, name: team.name, members: team.members, stages: team.workflow?.stages || [] },
-    safetyPolicy: team.workflow?.safetyPolicy || { defaultActionLevel: 'L0', realDeviceWrite: false, onlineChange: false, motion: false },
-    knowledgeEvidence: knowledge,
-    task: requested,
-    requiresHumanApproval: true,
-  }
-}
-
-function textFromBlocks(blocks) {
-  return (Array.isArray(blocks) ? blocks : [])
-    .filter((block) => block && block.type === 'text')
-    .map((block) => String(block.text || ''))
-    .join('\n')
-    .trim()
-    .slice(0, 6000)
-}
-
-function currentAgentRoute(agent) {
-  const events = Array.isArray(agent?.session?.events) ? agent.session.events : []
-  const request = [...events].reverse().find((event) => event?.type === 'request/header')
-  const config = request?.data?.header?.config || {}
-  return {
-    provider: String(agent?.options?.provider || config.provider || '').trim(),
-    model: String(agent?.options?.model || config.model || '').trim(),
-    reasoningEffort: String(agent?.options?.reasoningEffort || config.reasoningEffort || '').trim(),
-  }
-}
-
-// Expert configs are hand-editable and long-lived, so they routinely carry a
-// short provider name where the LLM registry registers a qualified id (the
-// shipped team says `ollama` while the registry has `ollama-local`). Without
-// this mapping a configured expert route fails to resolve, and the old code
-// swallowed that failure and quietly ran the expert on the parent's model — so
-// a "multi-model" team silently became N copies of one model.
-const PROVIDER_ALIASES = Object.freeze({
-  ollama: 'ollama-local',
-  deepseek: 'deepseek-api',
-  anthropic: 'anthropic-api',
-  claude: 'claude-code',
-  codex: 'codex-cli',
-  openai: 'codex-cli',
-  browser: 'web-ai',
-  web: 'web-ai',
-})
-
-function registeredProviderIds(ctx) {
-  try { return (ctx.llm?.listProviders?.() || []).map((provider) => String(provider.id || '')).filter(Boolean) } catch { return [] }
-}
-
-// Resolve a configured provider name to a registered id. Returns the original
-// value when nothing matches, so the caller's error message names what the user
-// actually wrote rather than a silently substituted guess.
-function resolveRegisteredProviderId(ctx, requested) {
-  const wanted = String(requested || '').trim()
-  if (!wanted) return ''
-  const registered = registeredProviderIds(ctx)
-  if (!registered.length) return wanted
-  if (registered.includes(wanted)) return wanted
-  const aliased = PROVIDER_ALIASES[wanted.toLowerCase()]
-  if (aliased && registered.includes(aliased)) return aliased
-  return registered.find((id) => id.toLowerCase() === wanted.toLowerCase()) || wanted
-}
-
-// Effective route for one expert.
-//
-// `configured` is now the DEFAULT (it was opt-in through `routeMode`), because
-// per-expert models are the entire point of an expert team: with the previous
-// default every member inherited the parent route and the team was single-model
-// by construction.
-//
-// A configured route that cannot be resolved still falls back to the parent so
-// the run is not lost, but the fallback is reported instead of swallowed.
-async function expertRoute(ctx, expert, mode, parent, signal, override = {}) {
-  const requestedProvider = String(override.provider || (mode === 'configured' ? expert?.providerId : '') || '').trim()
-  const requestedModel = String(override.model || (mode === 'configured' ? expert?.model : '') || '').trim()
-  if (requestedProvider && requestedModel) {
-    const providerId = resolveRegisteredProviderId(ctx, requestedProvider)
-    try {
-      await ctx.llm.resolveModelInfo(providerId, requestedModel, signal)
-      return {
-        provider: providerId,
-        model: requestedModel,
-        reasoningEffort: String(override.reasoningEffort || expert?.reasoningEffort || '').trim(),
-        source: override.provider || override.model ? 'call-override' : 'expert-config',
-        requestedProvider,
-        requestedModel,
-        fallbackReason: '',
-      }
-    } catch (error) {
-      const registered = registeredProviderIds(ctx).join(', ') || '(none)'
-      const reason = `专家配置路由不可用：${requestedProvider}/${requestedModel}（解析为 ${providerId}）：${String(error?.message || error).slice(0, 200)}；已注册提供方：${registered}`
-      const inherited = currentAgentRoute(parent)
-      if (!inherited.provider || !inherited.model) throw new Error(`${reason}；且当前 Harness 会话没有可继承的模型路由`)
-      return { ...inherited, source: 'parent-session-fallback', requestedProvider, requestedModel, fallbackReason: reason }
-    }
-  }
-  const inherited = currentAgentRoute(parent)
-  if (!inherited.provider || !inherited.model) throw new Error('当前 Harness 会话没有可继承的模型路由；请为该专家配置 providerId 与 model')
-  return { ...inherited, source: 'inherited', requestedProvider: '', requestedModel: '', fallbackReason: '' }
-}
-
-function expertPrompt(task, expert, stage, dependencyResults, safetyPolicy, knowledgeEvidence) {
-  const evidence = dependencyResults.length
-    ? dependencyResults.map((item) => `${item.stageId}: ${item.output || item.diagnostic || item.stopReason}`).join('\n')
-    : '无上游子任务；以主任务和知识库证据为准。'
-  return [
-    `主任务：${task}`,
-    `当前阶段：${stage.id}`,
-    `专家职责：${expert.role || expert.name}`,
-    `上游结果：\n${evidence.slice(0, EXPERT_CONTEXT_BUDGET.upstreamChars)}`,
-    `安全上限：${JSON.stringify(safetyPolicy)}`,
-    '只做分析、只读检索和方案输出；不得下载 PLC、写变量、启停、调试、Force 或绕过人工确认。',
-    `已审核知识召回：${JSON.stringify(knowledgeEvidence || { hits: [] }).slice(0, EXPERT_CONTEXT_BUDGET.knowledgeChars)}`,
-    `输出格式：${expert.outputFormat || '结论、证据、风险、下一步'}`,
-  ].join('\n\n')
-}
-
-async function runExpertTeam(ctx, args = {}, exec) {
-  exec.signal.throwIfAborted()
-  const data = readJson(join(root(), 'experts', 'experts.json'), { teams: [], experts: [] })
-  const team = data.teams.find((item) => item.id === (args.teamId || data.selectedTeamId)) || data.teams[0]
-  const safetyPolicy = team?.workflow?.safetyPolicy || { defaultActionLevel: 'L0', realDeviceWrite: false, onlineChange: false, motion: false }
-  const base = {
-    status: 'unavailable',
-    execution: 'harness-subagents',
-    agentLoop: 'Harness/DSH',
-    provider: 'spawn',
-    team: team ? { id: team.id, name: team.name } : {},
-    parentSessionId: String(exec.agent?.session?.id || ''),
-    runs: [],
-    failedCount: 0,
-    safetyPolicy,
-    requiresHumanApproval: true,
-    reason: '',
-  }
-  if (enabledRepositoryIds('experts').size === 0) return { ...base, reason: 'no-enabled-expert-repository' }
-  if (!team || data.teamEnabled === false) return { ...base, reason: 'expert-team-disabled' }
-  if (!exec.agent) return { ...base, reason: 'parent-agent-required' }
-  if (!ctx.subagents.list().includes('spawn')) return { ...base, reason: 'spawn-provider-unavailable' }
-  const task = String(args.task || '').trim().slice(0, EXPERT_CONTEXT_BUDGET.taskChars)
-  if (!task) return { ...base, reason: 'task-required' }
-  const knowledgeEvidence = searchDocuments('knowledge', task, EXPERT_CONTEXT_BUDGET.knowledgeResults)
-
-  const experts = new Map((data.experts || []).map((expert) => [expert.id, expert]))
-  const captainId = team.primaryExpertId || team.members?.find((member) => member.teamRole === 'captain')?.expertId
-  const stages = Array.isArray(team.workflow?.stages) ? team.workflow.stages : []
-  const stageById = new Map(stages.map((stage) => [stage.id, stage]))
-  const completed = new Set(stages.filter((stage) => stage.owner === captainId).map((stage) => stage.id))
-  const pending = stages.filter((stage) => stage.owner !== captainId && stage.trigger !== 'failure-only')
-  const resultsByStage = new Map()
-  const runs = []
-  // Follow-up multi-turn.
-  //
-  // One-shot delegation (`start`) disposes the child as soon as it settles, so
-  // there is no way to ask it anything else. `startContinuable` establishes a
-  // durable child with a stable id that stays addressable, and
-  // `dsh-tool-subagent-control` (already mounted by the cordis agent preset)
-  // exposes the model-facing `send_message` / `interrupt` / `list-agents` tools
-  // over that registry — so hooking up follow-up is a matter of creating the
-  // children continuably and reporting their ids.
-  //
-  // The trade-off, which is why this is opt-in rather than the default: per the
-  // seam's contract `startContinuable` resolves at INBOX ACCEPTANCE, not at
-  // completion, so it returns no output. The staged pipeline below feeds each
-  // stage's output into the next stage's prompt, and that requires awaiting the
-  // first turn. `continuable: true` therefore dispatches the team and returns
-  // child ids for follow-up instead of a finished analysis.
-  const wantsContinuable = args.continuable === true
-  const canContinue = wantsContinuable && typeof ctx.subagents?.startContinuable === 'function'
-  const continuableFallback = wantsContinuable && !canContinue
-    ? '当前 ctx.subagents 不提供 startContinuable，已退回一次性委派'
-    : ''
-  const maxMembers = Math.max(1, Math.min(8, Number(args.maxMembers) || 6))
-  // Default to each expert's own configured route. `inherited` remains available
-  // for an explicit single-model run, but it must not be the default: it turned
-  // every expert team into N copies of the parent model.
-  const routeMode = args.routeMode === 'inherited' ? 'inherited' : 'configured'
-
-  const executeStage = async (stage) => {
-    const expert = experts.get(stage.owner)
-    if (!expert) return { stageId: stage.id, expertId: stage.owner || '', name: stage.owner || stage.id, provider: '', model: '', routeSource: '', stopReason: 'error', output: '', diagnostic: 'expert-definition-missing' }
-    const dependencies = (stage.dependsOn || []).map((id) => resultsByStage.get(id)).filter(Boolean)
-    let route
-    try { route = await expertRoute(ctx, expert, routeMode, exec.agent, exec.signal, { provider: args.provider, model: args.model, reasoningEffort: args.reasoningEffort }) } catch (error) {
-      return { stageId: stage.id, expertId: expert.id, name: expert.name, provider: '', model: '', routeSource: '', stopReason: 'error', output: '', diagnostic: String(error.message || error).slice(0, 1000) }
-    }
-    let run
-    const subagentRequest = {
-      prompt: [{ type: 'text', text: expertPrompt(task, expert, stage, dependencies, safetyPolicy, knowledgeEvidence) }],
-      parent: exec.agent,
-      maxDepth: 1,
-      toolFilter: { allow: ['taskhive_knowledge_search', 'taskhive_knowledge_audit', 'taskhive_codesys_scriptengine_doctor', 'taskhive_codesys_scriptengine_probe'] },
-      persona: `${expert.systemPrompt || expert.role || expert.name}\n你是 Harness 派生的受限专家节点，不拥有独立 Agent Loop。`,
-      agentOptions: { provider: route.provider, model: route.model, ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}) },
-    }
-    const routeFields = {
-      expertId: expert.id,
-      name: expert.name,
-      provider: route.provider,
-      model: route.model,
-      routeSource: route.source,
-      requestedProvider: route.requestedProvider || '',
-      requestedModel: route.requestedModel || '',
-      routeDiagnostic: route.fallbackReason || '',
-    }
-    if (canContinue) {
-      // Durability is the point: do NOT dispose. The child stays addressable by
-      // the native `send_message` tool so the operator can ask it follow-ups.
-      try {
-        const started = await ctx.subagents.startContinuable({
-          provider: 'spawn',
-          label: `${expert.name} · ${stage.id}`,
-          request: subagentRequest,
-          signal: exec.signal,
-        })
-        return { stageId: stage.id, ...routeFields, stopReason: 'dispatched', childId: String(started?.childId || ''), messageId: String(started?.messageId || ''), continuable: true, output: '', diagnostic: '' }
-      } catch (error) {
-        // A provider without `prepareContinuable` refuses rather than ignoring it.
-        // Record the refusal on this stage and leave the others running; the
-        // caller can re-run non-continuably if it wants that stage's output.
-        return { stageId: stage.id, ...routeFields, stopReason: 'error', continuable: false, output: '', diagnostic: `continuable 委派失败：${String(error?.message || error).slice(0, 500)}` }
-      }
-    }
-    try {
-      run = await ctx.subagents.start('spawn', { label: `${expert.name} · ${stage.id}`, signal: exec.signal, ...subagentRequest })
-      const result = await run.result
-      return {
-        stageId: stage.id,
-        ...routeFields,
-        stopReason: String(result.stopReason || 'error'),
-        output: textFromBlocks(result.output),
-        diagnostic: String(result.diagnostic || '').slice(0, 1000),
-      }
-    } catch (error) {
-      return { stageId: stage.id, ...routeFields, stopReason: 'error', output: '', diagnostic: String(error.message || error).slice(0, 1000) }
-    } finally {
-      if (run) await run.dispose()
-    }
-  }
-
-  while (pending.length && runs.length < maxMembers) {
-    exec.signal.throwIfAborted()
-    const ready = pending.filter((stage) => (stage.dependsOn || []).every((dependency) => completed.has(dependency) || !stageById.has(dependency)))
-    if (!ready.length) break
-    const batch = ready.slice(0, maxMembers - runs.length)
-    const settled = await Promise.all(batch.map(executeStage))
-    for (const result of settled) {
-      runs.push(result)
-      resultsByStage.set(result.stageId, result)
-      completed.add(result.stageId)
-      pending.splice(pending.findIndex((stage) => stage.id === result.stageId), 1)
-    }
-  }
-
-  // A dispatched continuable child has not failed — it simply has no result yet.
-  // Treating 'dispatched' as a failure made every continuable run look broken and
-  // needlessly started the failure-only takeover expert.
-  const isFailure = (run) => run.stopReason !== 'completed' && run.stopReason !== 'dispatched'
-  if (runs.some(isFailure)) {
-    const fallback = stages.find((stage) => stage.trigger === 'failure-only' && stage.owner !== captainId)
-    if (fallback && !runs.some((run) => run.stageId === fallback.id)) {
-      const result = await executeStage(fallback)
-      runs.push(result)
-      resultsByStage.set(result.stageId, result)
-    }
-  }
-  const failedCount = runs.filter(isFailure).length
-  // Multi-model verification surface. A team is only genuinely multi-model when
-  // the runs actually used more than one provider/model, so report that as a
-  // first-class field instead of leaving the caller to infer it from the runs.
-  const usedRoutes = [...new Set(runs.map((run) => `${run.provider}/${run.model}`).filter((value) => value !== '/'))]
-  const routeFallbacks = runs.filter((run) => run.routeDiagnostic).map((run) => ({ stageId: run.stageId, expert: run.name, requested: `${run.requestedProvider}/${run.requestedModel}`, used: `${run.provider}/${run.model}`, reason: run.routeDiagnostic }))
-  const routeSummary = {
-    mode: routeMode,
-    distinctRoutes: usedRoutes.length,
-    multiModel: usedRoutes.length > 1,
-    routes: usedRoutes,
-    perExpert: runs.map((run) => ({ stageId: run.stageId, expert: run.name, provider: run.provider, model: run.model, source: run.routeSource })),
-    fallbacks: routeFallbacks,
-  }
-  const result = {
-    ...base,
-    status: canContinue ? 'dispatched' : (pending.length || failedCount ? 'partial' : 'completed'),
-    runs,
-    failedCount,
-    routeSummary,
-    // Follow-up surface. Children created with startContinuable keep their id and
-    // are reachable by the native control tool, which is what makes multi-turn
-    // questioning possible.
-    children: runs.filter((run) => run.childId).map((run) => ({ stageId: run.stageId, expert: run.name, childId: run.childId, provider: run.provider, model: run.model })),
-    followUp: canContinue
-      ? { tool: 'send_message', note: '子专家已按可续方式启动并保留 id：用原生 send_message 向某个 childId 追问，可多轮追加；用 list-agents 查看存活子代理，用 interrupt 中止。' }
-      : null,
-    continuation: { requested: wantsContinuable, active: canContinue, reason: continuableFallback },
-    knowledgeEvidence,
-    reason: pending.length ? 'dependency-or-member-limit' : '',
-  }
-  // A continuable dispatch has no outputs yet, and an empty retention creates a
-  // content-free card in the review queue — so only retain when there is
-  // something to retain.
-  const retentionText = runs.map((run) => `${run.name}: ${run.output || run.diagnostic}`).join('\n\n').trim()
-  const candidate = retentionText && !canContinue
-    ? await retainExpertCandidate({ task, result: retentionText, parentSessionId: result.parentSessionId, modelId: runs.map((run) => run.model).filter(Boolean).join(',') })
-    : null
-  if (candidate) result.knowledgeCandidate = candidate
-  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +221,11 @@ function workbenchKey(value) { return String(value || '').trim().slice(0, 200) }
 function publishWorkbenchState(sessionId, state) {
   const key = workbenchKey(sessionId)
   if (!key || !state || typeof state !== 'object') return false
+  // T199（③）：在线只读快照搭**同一条**发布过来（见 50-codesys-workbench.js），但它不属于
+  // "工作台状态"：这里把它单独存一份给 taskhive_codesys_online 用。工作台工具
+  // （workbenchToolPayload）是**逐字段**构造返回值的，所以这个额外的键不会出现在它的
+  // 返回形状里 —— 老契约因此一个字段都不用改。
+  if (state.online !== undefined) publishOnlineState(sessionId, state.online)
   // T088: 合并而不是整体替换。工程快照约 28000 字符，客户端只在工程对象变化时才
   // 附带它（否则每次选区/输入停顿都要重发几十 KB）；若这里整体替换，后续那次不带
   // 快照的发布就会把它清掉。显式传 null 仍然能清空字段（合并只保留"未出现"的键）。
@@ -560,6 +243,232 @@ function readWorkbenchState(sessionId) {
   if (!entry) return null
   if (Date.now() - entry.at > WORKBENCH_STATE_TTL_MS) { workbenchStates.delete(key); return null }
   return entry.state
+}
+
+// ---------------------------------------------------------------------------
+// T199（③）：在线分析接给 AI —— **只读**、**按需读一次**。
+//
+// 为什么是"读面板已经观测到的状态"而不是"模型自己去连一次设备"：
+//   * 真机事实：在线会话（登录之后的连接、应用登录状态、目标设备、在线变量值）活在一个
+//     **常驻** CODESYS 进程里，而那个会话由 Electron 主进程持有（codesysScriptEngine 的
+//     单例）。本文件跑在**另一个** node 进程里（DSH runtime），在这里 `new CodesysScriptEngine()`
+//     拿到的是一台**空**引擎 —— 它没有会话，也永远不该为了"读一眼"去开第二个 PLC 连接。
+//   * 安全红线：任何登录/下载/在线修改/写变量/启停/复位/Force 都只能由用户在面板上显式点击。
+//     让模型自己连一次设备就等于给 AI 开了一条真的会碰到机器的路，这里**明确不做**。
+//   * 所以这一个工具只做一件事：把**面板当前知道的在线状态**读回来。它一次调用读一次内存，
+//     没有轮询、没有定时器、没有新的推送通道 —— 数据搭在 T088 那条**既有**的工作台状态发布上
+//     （客户端每 900 ms 合并发送一次，且只有该面板打开过才会发）。
+// 没连上时它给出一条**可执行的下一步**（与 taskhive_codesys_workbench 的 nextStep 同一风格）：
+// 用户点哪里、模型随后怎么重试，而不是把问题原样退回给用户。
+// ---------------------------------------------------------------------------
+const onlineStates = new Map()
+const ONLINE_STATE_TTL_MS = 15 * 60 * 1000
+
+function publishOnlineState(sessionId, online) {
+  const key = workbenchKey(sessionId)
+  if (!key || !online || typeof online !== 'object') return false
+  onlineStates.set(key, { at: Date.now(), online: { ...online, readOnly: true } })
+  return true
+}
+
+function readOnlineState(sessionId) {
+  const key = workbenchKey(sessionId)
+  const entry = onlineStates.get(key)
+  if (!entry) return null
+  if (Date.now() - entry.at > ONLINE_STATE_TTL_MS) { onlineStates.delete(key); return null }
+  return entry.online
+}
+
+// T199（③）：面板**从没**把在线状态发过来（用户这一轮根本没打开过 CODESYS 面板的在线区域）。
+// 这时唯一能成功的一步是让用户把面板打开 —— 说清楚是谁做什么，而不是只说"读不到"。
+const CODESYS_ONLINE_NOT_REPORTED_NEXT_STEP = '下一步（都不需要模型自己动手）：① 请用户在 CODESYS 面板里打开「在线」区域（面板一打开，TaskHive 就会把在线状态同步给本工具）；② 若面板已经开着但这里仍然说没有数据，请用户切到在线页签再切回来一次（状态只在面板观测到变化时同步，且 15 分钟后过期）；③ 拿到数据之后再调用本工具。注意：本工具**只读**，它从不连接 PLC；登录、下载、在线修改、写变量、启停、复位、Force 都只能由用户在面板上显式点击。'
+const CODESYS_ONLINE_NOT_CONNECTED_NEXT_STEP = '下一步（都不需要模型自己动手）：① 请用户在 CODESYS 面板的在线区域点「扫描设备」选中一台 PLC（这一步只改工程副本里的内存目标，不连接、不下载），然后点「登录」建立在线连接 —— 首次要启动常驻在线进程，真机约 20–40 秒；② 连接成功后重新调用本工具 taskhive_codesys_online，就会读到 connected:true、目标设备与应用状态；③ 想看在线变量值，请用户先切到某个 POU，再调用本工具并传 include:"values"（值来自面板上一次读到的结果，带观测时间）。下载 / 在线修改 / 写变量 / 启停 / 复位 / Force 都只能由用户在面板上显式点击，模型不得触发，也不要声称做过。'
+// 本轮（用户报障原文：「我通过原声 codesys 登录之后，ai 对话依然检查不到登录状态」）：
+// `connected:false` 只说明**我方**那条常驻在线会话没登录 —— 它**不能**推断用户在原生 IDE 里的
+// 那次登录失败了。事实（T211/T212 已证，别推翻）：IDE 的会话搬不出来 —— 两边是独立进程、1217
+// 私有协议没有 HTTP 接口、也没有任何"枚举会话"的 API。所以这里把"看不见"**说清楚**，并给出
+// 唯一**真的能成功**的那一步（在面板里登录一次），而不是让模型把它当成一次故障去解释。
+// 它是一句话，不是错误：不写"失败"、不写"未连接设备"，也不改 connected/loggedIn 的事实。
+const CODESYS_ONLINE_LOGIN_VISIBILITY = '如实说明：我自己的在线会话还没有登录，所以读不到登录状态（面板里点「扫描设备 → 登录」即可建立一条我能读到的在线连接）。原生 CODESYS IDE 里的那次登录**我看不到**：IDE 与我方常驻在线进程是两个独立进程，会话搬不出来，也没有会话枚举接口 —— 因此「这里读到未登录」不等于「你那边登录失败」，也不是错误，只是我这条只读通路看不到 IDE 的那条会话。'
+// 网关的"共享连接"弱信号：设备上另有客户端（很可能就是 IDE）连着。**如实展示、不当判据**。
+const CODESYS_ONLINE_SHARED_CONNECTED_NOTE = '另外：设备上可能有别的客户端（很可能是原生 IDE）连着（sharedConnected:true）。这是弱信号，只作提示，我不用它做任何判断。'
+// 本轮（用户报障原文：「我已经在codesys工作台登录了，但是对话依然读不到」）
+// —— 现场真机证据（workspaces\codesys-scriptengine\jobs\direct-1791451665733-44f1472e\online\
+// online-result-22e040686b1b-*.json，用户在 17:28:49 点了「登录」，此后每 8 秒一条 status，
+// 到 17:32:01 共 40 条，**逐条完全相同**）：
+//     connected:true  sharedConnected:true  isLoggedIn:false  applicationState:"none (0)"  loggedOnUsername:""
+// 也就是说：**连接成功了，应用层没有登录**（设备上没有可登录的应用）。面板自己的口径与此一致
+// （50-codesys-workbench.js:1805-1809：应用层登录没成功时写「设备上没有可登录的应用」，并指出
+// 唯一能把应用登录上去的一步是用户点「下载」；1800 行也写明「登录」只连接、不传输程序）。
+//
+// 旧写法把 reason / nextStep / loginVisibility **三条全部**挂在 `connected === true` 上，于是
+// 恰好在这一个状态（已连接 + 未登录）三条同时变成空串：模型手里只剩一句 `loggedIn:false`，
+// 没有任何解释、也没有任何下一步可转达 —— 这正是「对话依然读不到登录状态」的直接来源。
+// 判据改成 **loggedIn**（"能不能读到登录之后才有的东西"），connected 只用来挑哪一条"下一步"。
+const CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_REASON = '已连上控制器（connected:true），但应用层还没有登录（loggedIn:false），所以"登录之后才有"的东西（应用状态、在线变量值）现在都读不到。'
+const CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_NEXT_STEP = '下一步（都不需要模型自己动手）：① 面板那条状态行里写了应用层登录没成功的确切原因，没有原因时面板的口径是「设备上没有可登录的应用」；② 唯一能把应用真正登录上去的一步是请用户在面板上点「下载」，把当前工程送到设备（会停止设备上正在运行的应用，且不自动重启）；③ 之后再调用本工具 taskhive_codesys_online，就会读到 loggedIn:true、applicationState 与 loginMode，并可传 include:"values" 读在线变量值。注意：面板上的「登录」只建立连接、不传输程序；本工具**只读**，它不连接、不登录、不下载。'
+const CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_VISIBILITY = '如实说明：控制器已经连上（connected:true），但我这条只读通路还没有拿到应用层登录，所以读不到登录后的状态（应用状态、在线变量）。这**不等于**你的操作失败：面板上的「登录」本来就只连接、不传输程序，而设备上要先有一个应用才谈得上应用层登录。设备上另有客户端（原生 IDE）连着的话，我也只能看到 sharedConnected 这个弱信号，看不到它的会话。要让我读到登录状态，唯一的一步是在面板上点「下载」。'
+
+// 陈旧快照（本轮报障的强线索）：用户会话里两次 taskhive_codesys_online {"include":"state"}
+// 返回的 observedAt 完全相同（2026-10-08T08:13:27.980Z 两次一样）。
+// 现场事实：面板的发布是**指纹驱动**的（50-codesys-workbench.js:2714-2731 的 liveStateFingerprint，
+// 由 2732 那个 useEffect 触发），指纹里既不放时间戳、也不放在线变量值；而 observedAt 就是
+// "这一次发布发生的时刻"（50-codesys-workbench.js:2823，`new Date().toISOString()`）。
+// 所以状态不变时面板就不再发布，observedAt 自然一动不动 —— 它不是"我此刻读到的时刻"。
+// 本工具**不能**自己去取一次心跳：它是只读的（不连接、不登录、不下载），而且既有契约
+// （codesys-ai-online-readonly-contract.js:58 的禁用名单）明确禁止它在 execute 里构造引擎。
+// 于是这里能做、也必须做的唯一一件事：把"这是什么时候观测到的、有多旧"如实报出来 ——
+// 不把旧时刻当现状，也不因为它旧就把它说成错的。
+const ONLINE_SNAPSHOT_UNOBSERVED = '本工具只读、不轮询，自己不去读心跳：这一轮还没有任何已观测到的在线状态，所以没有观测时刻可报。'
+function onlineFreshness(observedAt, ageSeconds) {
+  if (!observedAt) return ONLINE_SNAPSHOT_UNOBSERVED
+  if (!Number.isFinite(ageSeconds) || ageSeconds < 0) {
+    return `本工具只读、不轮询，自己不去读心跳：观测时刻是面板给的 ${observedAt}（本进程解析不了它，所以给不出"有多旧"）。`
+  }
+  return `本工具只读、不轮询，自己不去读心跳：下面这份状态是面板**最后一次观测到状态变化**时的结果，观测时刻 ${observedAt}（约 ${ageSeconds} 秒前），不是"我此刻读到的时刻"。状态一直不变时这个时刻就不会推进（面板只在状态变化时才同步给宿主），所以"时刻旧 + 状态没变"不等于读到了一份错的或过期的数据；但如果面板已经不在观测（切走页面、关掉工作台），本工具也察觉不到，只能把这个时刻与年龄如实给你。要刷新它，请用户在面板上操作一次。`
+}
+
+// ---------------------------------------------------------------------------
+// 本轮 B 项（用户报障原文：「而且对话依然读取不到在线变量」）—— **值的取不到**。
+//
+// 真机现场（C:\TaskHive\...\jobs\direct-1791453468383-cf2c7a96\online\online-result-…-149.json，
+// 用户 18:03 时确实已经登录：status 帧里 connected:true / isLoggedIn:true / loginMode:"keep"，
+// 同一作业的 monitor 帧也真的读回了值：
+//     startMove=FALSE  iAxis=INT#0  MaxVel=UDINT#2048576000  bcontrol=UINT#0  log_msg=''
+// 也就是说：**用户没有说谎，面板确实观测到了值**，而当时本工具只能回一个空数组。
+//
+// 为什么可能读不到值 —— 只有两种，必须分开说（含糊一句"读不到"正是用户抱怨的那句话）：
+//   (a) 应用层没登录（loggedIn:false）⇒ "登录之后才有"的在线变量值根本读不出来，
+//       唯一能成功的一步是用户在面板上点「下载」；
+//   (b) 已经登录，但面板**还没有值** ⇒ 值的读取**随登录自动开始**（本轮用户规则原文：
+//       「把在线值开关去除，登录后默认在线值开启」—— 原来那枚「在线值」开关已经整段删除，
+//       所以这里**没有**任何要用户去点的开关）。面板读值需要代码编辑区正打开一个 POU
+//       （读的清单来自这个 POU 的声明），所以缺的那一步是"切到一个 POU"。
+//       宿主不能替用户切 POU，也不能自己去读一次（只读红线：本工具的 execute 里连引擎都
+//       不许构造）。
+// 这两种情形给出的"下一步"完全不同，所以这里分成两句话。
+// ---------------------------------------------------------------------------
+const CODESYS_ONLINE_VALUES_NOT_LOGGED_IN_NOTE = '这一次没有在线变量值可给：应用层还没有登录（loggedIn:false），而在线变量的值属于"登录之后才有"的东西，所以现在读不到 —— 这不是读失败，也不是设备没响应。唯一能让应用真正登录上去的一步是请用户在工作台里点「下载」（会停止设备上正在运行的应用，且不自动重启）。下载完成后再调用本工具并传 include:"values"，就会拿到每个变量的值与它的观测时间。'
+const CODESYS_ONLINE_VALUES_NOT_OBSERVED_NOTE = '这一次没有在线变量值可给，而且**不是**因为没登录：面板那边已经登录了，只是它还没有观测到值。在线变量的读取**随登录自动开始**（登录后默认开启，不需要用户点任何东西 —— 原来那枚「在线值」按钮已按用户要求整段删除；读值沿用面板既有节拍 1.5 秒、读得慢自动退避到最多 6 秒、页面不可见不读）。请在回答里请用户做这一步（不需要你动手，你也不要去读设备）：在工作台的项目树里切到一个 POU，让代码编辑区打开它 —— 读值的清单就来自这个 POU 的声明。几秒后重新调用本工具并传 include:"values"，就会拿到形如 {expression, value} 的列表，每一条都带观测时间（valuesObservedAt）与年龄（valuesAgeSeconds）。提示：形如「名字 : 类型;」的简单声明直接读自己；FB 实例（MC_xxx / TON / CTU…）读它的关键成员，成员读不到会留空而不是编一个值；数组/结构整体读不出来。读数**没有条数上限**（用户要求「上限去除」）：一个 POU 的可监视表达式超过引擎单次读取的上限（120 条）时，面板会**跨节拍分批**轮流转，同一时刻仍然只有一个请求在飞、页面不可见时不读 —— 这时每个值的刷新周期按批数放大（例如 300 条约 3 拍一轮，约 5 秒），但不会有哪一条永远读不到。本工具只读、不轮询：它不会替用户打开 POU，也不会自己去读一次。'
+function onlineValuesNote(wantValues, online, values, loginVisible, connected) {
+  if (!wantValues) return ''
+  if (values.length) return ''
+  if (!online) return CODESYS_ONLINE_VALUES_NOT_OBSERVED_NOTE
+  if (loginVisible) return CODESYS_ONLINE_VALUES_NOT_OBSERVED_NOTE
+  if (connected) return CODESYS_ONLINE_VALUES_NOT_LOGGED_IN_NOTE
+  return CODESYS_ONLINE_VALUES_NOT_LOGGED_IN_NOTE
+}
+function onlineAgeSeconds(stamp) {
+  const ms = Date.parse(String(stamp || ''))
+  return stamp && Number.isFinite(ms) ? Math.max(0, Math.round((Date.now() - ms) / 1000)) : -1
+}
+
+function onlineToolPayload(sessionId, include) {
+  const online = readOnlineState(sessionId)
+  const wantValues = include === 'values'
+  const target = online && online.target && typeof online.target === 'object'
+    ? {
+        summary: String(online.target.summary || ''),
+        source: String(online.target.source || ''),
+        address: String(online.target.address || ''),
+      }
+    : { summary: '', source: '', address: '' }
+  const armed = online && online.authorization && typeof online.authorization === 'object' ? online.authorization : null
+  const authorization = {
+    armed: armed?.armed === true,
+    capabilities: Array.isArray(armed?.capabilities) ? armed.capabilities.map((item) => String(item || '')) : [],
+    projectName: String(armed?.projectName || ''),
+    targetSummary: String(armed?.targetSummary || ''),
+  }
+  if (!online) {
+    return {
+      kind: 'codesys-online',
+      readOnly: true,
+      available: false,
+      reported: false,
+      connected: false,
+      running: false,
+      loggedIn: false,
+      loginMode: '',
+      applicationState: '',
+      deviceName: '',
+      bound: false,
+      target,
+      authorization,
+      deniedCapabilities: [],
+      values: [],
+      valuesObservedAt: '',
+      // 本轮 B 项：要求了值却一个都没有 ⇒ 如实说清缺的是哪一步（不是一句"读不到"）。
+      valuesNote: onlineValuesNote(wantValues, null, [], false, false),
+      valuesAgeSeconds: -1,
+      observedAt: '',
+      // 本轮：没有观测时刻 ⇒ 年龄如实给 -1（不是 0，"0 秒前"会是一句假话），外加一行说明。
+      observedAgeSeconds: -1,
+      freshness: ONLINE_SNAPSHOT_UNOBSERVED,
+      // 本轮：面板从没同步过 ⇒ 我方也没有任何"别的客户端连着"的证据，如实给 false。
+      sharedConnected: false,
+      reason: '工作台还没有把在线状态同步到宿主：这一轮还没有任何已观测到的在线状态。',
+      nextStep: CODESYS_ONLINE_NOT_REPORTED_NEXT_STEP,
+      // 本轮：没有应用层登录（含"还没同步过"）时都给这一行如实说明；
+      // loggedIn:true（真的能看到登录后的状态）时它必须是空串（见下面）。
+      loginVisibility: CODESYS_ONLINE_LOGIN_VISIBILITY,
+      note: '本工具只读：它只返回面板已经观测到的在线状态，不连接、不登录、不下载、不写变量、不启停。数据没有轮询，只在你调用它时读一次。',
+    }
+  }
+  const values = wantValues && Array.isArray(online.values) ? online.values : []
+  const connected = online.connected === true
+  // 本轮：判据是**应用层登录**（能不能读到"登录之后才有"的状态），**不是**连接。
+  // 旧写法用 connected 当判据，于是在"已连接 + 未登录"这一个真实状态上，
+  // reason / nextStep / loginVisibility 三条同时为空 —— 模型只能干说一句 loggedIn:false。
+  const loginVisible = online.loggedIn === true
+  const sharedConnected = online.sharedConnected === true
+  const observedAt = String(online.observedAt || '')
+  const observedMs = Date.parse(observedAt)
+  const observedAgeSeconds = observedAt && Number.isFinite(observedMs)
+    ? Math.max(0, Math.round((Date.now() - observedMs) / 1000))
+    : -1
+  return {
+    kind: 'codesys-online',
+    readOnly: true,
+    available: true,
+    reported: true,
+    connected,
+    running: online.running === true,
+    loggedIn: loginVisible,
+    loginMode: String(online.loginMode || ''),
+    applicationState: String(online.applicationState || ''),
+    deviceName: String(online.deviceName || ''),
+    bound: online.bound === true,
+    target,
+    authorization,
+    deniedCapabilities: Array.isArray(online.deniedCapabilities) ? online.deniedCapabilities.map((item) => String(item || '')) : [],
+    values: values.map((item) => ({ expression: String(item?.expression || ''), value: String(item?.value ?? '') })),
+    valuesObservedAt: values.length ? String(online.valuesObservedAt || '') : '',
+    // 值取到时有值 ⇒ 不加噪音（空串）；取不到 ⇒ 说清缺哪一步 + 下一步。
+    valuesNote: onlineValuesNote(wantValues, online, values, loginVisible, connected),
+    // 值的观测时刻有多旧（机器可读；没有值时给 -1，不给 0 那种假话）。
+    valuesAgeSeconds: values.length ? onlineAgeSeconds(online.valuesObservedAt) : -1,
+    observedAt,
+    // 本轮：观测时刻**有多旧**。机器可读的一个数，配合 freshness 那一行说清楚。
+    observedAgeSeconds,
+    freshness: onlineFreshness(observedAt, observedAgeSeconds),
+    // 弱信号：只如实展示，不参与任何判断（不改目标、不自动登录、不释放会话）。
+    sharedConnected,
+    // 三条说明的分支按 loginVisible / connected 两档展开：已连接但没登录，必须有一句
+    // 说得通的理由和一条真的能成功的下一步（否则就是用户看到的"读不到、也不说为什么"）。
+    reason: loginVisible ? '' : (connected
+      ? CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_REASON
+      : (online.running === true
+        ? '在线进程在运行，但还没有连上控制器（尚未登录）。'
+        : '在线会话当前没有运行：还没有建立到控制器的连接。')),
+    nextStep: loginVisible ? '' : (connected
+      ? CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_NEXT_STEP
+      : CODESYS_ONLINE_NOT_CONNECTED_NEXT_STEP),
+    loginVisibility: loginVisible ? '' : (connected
+      ? (sharedConnected ? `${CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_VISIBILITY}${CODESYS_ONLINE_SHARED_CONNECTED_NOTE}` : CODESYS_ONLINE_CONNECTED_NOT_LOGGED_IN_VISIBILITY)
+      : (sharedConnected ? `${CODESYS_ONLINE_LOGIN_VISIBILITY}${CODESYS_ONLINE_SHARED_CONNECTED_NOTE}` : CODESYS_ONLINE_LOGIN_VISIBILITY)),
+    note: '本工具只读：它只返回面板已经观测到的在线状态（含面板上一次读到的在线变量值，带观测时间），不连接、不登录、不下载、不写变量、不启停、不复位、不 Force。数据没有轮询，只在你调用它时读一次。要刷新它，请用户在面板上操作。',
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -700,13 +609,21 @@ function purgeSessionRecords(targets, options) {
   return { root, deleted, skipped, freedBytes }
 }
 
-function queueWorkbenchProposal(sessionId, proposal, note) {
+function queueWorkbenchProposal(sessionId, proposal, note, identity = null) {
   const key = workbenchKey(sessionId)
   if (!key) return null
   const entry = {
     id: `codesys-proposal-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     proposal,
     note: String(note || '').slice(0, 2000),
+    // 本轮（用户报障原文：「残留到代码任务会自动加载到我新打开到程序里面」）：
+    // 队列原来只按 `sessionId` 排队，于是上一个工程留下的**待确认提案**在用户新打开另一个
+    // 工程、工作台刚绑上时被一起领走 —— 它没有绑定"是给哪个工程、哪一版源文件生成的"，所以
+    // 跨工程泄漏。这里把**工程身份**随提案一起记住：`(工程路径, 绑定时的源 sha256)`。
+    // 领取方（工作台）拿它与自己当前的绑定比对，任一对不上就不显示，并写一行说明。
+    // 只加字段，不改队列语义、不改 TTL、不新增通道。
+    projectPath: String(identity?.projectPath || ''),
+    sourceSha256: String(identity?.sourceSha256 || ''),
     createdAt: new Date().toISOString(),
     claimedAt: '',
   }
@@ -715,7 +632,7 @@ function queueWorkbenchProposal(sessionId, proposal, note) {
   workbenchProposals.set(key, fresh.slice(-8))
   // A server-side trail for "did my proposal actually reach the workbench?".
   // Without it the only evidence lives in the caller's own read-back.
-  console.log(`[taskhive-surfaces] codesys.workbench.proposal.queued id=${entry.id} session=${key} changes=${(proposal?.changes || []).length}`)
+  console.log(`[taskhive-surfaces] codesys.workbench.proposal.queued id=${entry.id} session=${key} changes=${(proposal?.changes || []).length} project=${entry.projectPath || '(none)'} sha=${entry.sourceSha256.slice(0, 8) || '(none)'}`)
   return entry
 }
 
@@ -821,7 +738,8 @@ function installWorkbenchRoutes(ctx) {
         }
         if (method === 'pending') {
           const items = body?.consume === true ? claimWorkbenchProposals(body?.sessionId) : (workbenchProposals.get(workbenchKey(body?.sessionId)) || [])
-          writeWorkbenchJson(response, 200, { ok: true, value: { proposals: items.map((item) => ({ id: item.id, note: item.note, createdAt: item.createdAt, proposal: item.proposal })) } })
+          // 本轮：把**工程身份**一并交给领取方（工作台）——它据此判定"这份提案还是不是给我的"。
+          writeWorkbenchJson(response, 200, { ok: true, value: { proposals: items.map((item) => ({ id: item.id, note: item.note, createdAt: item.createdAt, proposal: item.proposal, projectPath: String(item.projectPath || ''), sourceSha256: String(item.sourceSha256 || '') })) } })
           return
         }
         // T092: 会话记录维护。同一个受信任 POST 通道，同样是同源 JSON。
@@ -840,6 +758,20 @@ function installWorkbenchRoutes(ctx) {
             writeWorkbenchJson(response, 200, { ok: true, value: purgeSessionRecords(body?.targets, { activeSessionId: body?.activeSessionId }) })
             return
           }
+          if (sessionMethod === 'archive') {
+            const sessionId = String(body?.sessionId || '').trim()
+            if (!sessionId) {
+              writeWorkbenchJson(response, 400, { ok: false, error: { code: 'invalid-session', message: 'archive requires sessionId' } })
+              return
+            }
+            if (typeof ctx.workspaceRegistry?.archiveSession !== 'function') {
+              writeWorkbenchJson(response, 503, { ok: false, error: { code: 'service-unavailable', message: 'workspace archive service unavailable' } })
+              return
+            }
+            await ctx.workspaceRegistry.archiveSession(sessionId)
+            writeWorkbenchJson(response, 200, { ok: true, value: { sessionId } })
+            return
+          }
           writeWorkbenchJson(response, 404, { ok: false, error: { code: 'not-found', message: `unknown sessions API method "${sessionMethod}"` } })
           return
         }
@@ -850,6 +782,21 @@ function installWorkbenchRoutes(ctx) {
     },
   })
 }
+
+// T184：工作台"没有绑定工程"时给模型的**可执行下一步**。
+//
+// 为什么需要它：真机上用户让 AI"写入一个名为 test 的程序"，AI 只回了一句"无法写入，因为代码
+// 工作台没有绑定工程" —— 模型手里没有一条**能成功**的动作，于是只能把问题原样退回给用户。
+//
+// 绑定本身不是模型能做的事（`bind-project` 只能由面板/工作台的绑定流程发起，模型没有这个动作），
+// 所以"下一步"按"谁做什么"写清楚：
+//   * 用户侧：在 CODESYS 面板打开「代码任务」标签，并确认「当前工程」一行已经识别到工程（没有就点
+//     『刷新』或『选择工程』，并先在 CODESYS 里打开并保存那个 .project）；
+//   * TaskHive 侧：用户点开「AI 对话」抽屉时会自动打开「CODESYS 工作台」页签并触发绑定
+//     （见 app/main.js 的 codesys:ai-chat → 数据桥 ensureWorkbench），所以"稍等几秒再读一次本工具"
+//     是一条真的会成功的动作 —— 首次读取要启动 CODESYS ScriptEngine，真机约几十秒。
+// 这里一个写入动作都不承诺：绑定 ≠ 写入；写入一律由用户在工作台点「确认写入工程（离线编译）」触发。
+const CODESYS_WORKBENCH_UNBOUND_NEXT_STEP = '下一步（都不需要模型自己动手）：① 先等几秒到几十秒再重新调用本工具 taskhive_codesys_workbench —— 用户点开「AI 对话」抽屉时 TaskHive 会自动打开「CODESYS 工作台」页签并触发绑定，绑定是一次读取工程的隔离作业（首次要启动 CODESYS ScriptEngine，真机约几十秒），完成后本工具就会返回 projectBound=true 与对象代码；② 若重试后仍未绑定，请用户在 CODESYS 面板打开「代码任务」标签，并确认面板「当前工程」一行已经识别到工程（没有就点『刷新』或『选择工程』，并先在 CODESYS 里打开并保存该 .project）；③ 绑定成功后再用 taskhive_codesys_workbench_propose 提交完整声明/实现文本。绑定不会写入任何文件，写入只能由用户在工作台点「确认写入工程」触发。在拿到 projectBound=true 之前，不要在回复里声称已经改过工程代码。'
 
 function workbenchToolPayload(sessionId, include) {
   const key = workbenchKey(sessionId)
@@ -872,9 +819,11 @@ function workbenchToolPayload(sessionId, include) {
       // T088: 请求了工程快照却拿不到状态时必须明说，否则模型会把"没快照"当成
       // "工程里没有代码"。
       ...(wantSnapshot ? { projectSnapshot: null, projectSnapshotNote: '工作台尚未发布状态，因此没有工程快照可用。请用户在 CODESYS 面板绑定并读取工程后重试；不要凭猜测修改代码。' } : {}),
+      // T184：这条失败必须是**可执行**的（见上面 CODESYS_WORKBENCH_UNBOUND_NEXT_STEP 的说明）。
+      nextStep: CODESYS_WORKBENCH_UNBOUND_NEXT_STEP,
       note: queuedProposals.length
-        ? 'CODESYS 代码工作台尚未发布状态（未打开或尚未绑定工程），但你提交的差异已排队：打开「代码任务」标签后工作台会在数秒内领取并高亮显示。'
-        : 'CODESYS 代码工作台尚未打开或尚未绑定工程。请用户在 TaskHive 的 CODESYS 面板点击「代码任务」并绑定工程后再读取；不要凭猜测修改 CODESYS 代码。',
+        ? `CODESYS 代码工作台尚未发布状态（未打开或尚未绑定工程），但你提交的差异已排队：打开「代码任务」标签后工作台会在数秒内领取并高亮显示。${CODESYS_WORKBENCH_UNBOUND_NEXT_STEP}`
+        : `CODESYS 代码工作台尚未打开或尚未绑定工程。${CODESYS_WORKBENCH_UNBOUND_NEXT_STEP}`,
     }
   }
   const open = state.openObject || null
@@ -973,12 +922,15 @@ function workbenchToolPayload(sessionId, include) {
       matchedProjectRule: '只修改本工作台绑定的工程对象；GUID 必须来自本工具返回的数据',
       forbidden: ['PLC 登录/下载', '在线修改', '变量写入', '启停/复位', '调试/断点/单步', 'Force'],
     },
+    // T184：没绑定时给一条**能成功**的下一步（见 CODESYS_WORKBENCH_UNBOUND_NEXT_STEP）。绑定
+    // 之后它就是空串 —— 不要给模型读没有用的东西。
+    nextStep: bound ? '' : CODESYS_WORKBENCH_UNBOUND_NEXT_STEP,
     note: (() => {
       const base = bound
         ? (open
           ? 'openObject.declaration 与 openObject.implementation 就是工作台里「声明」和「实现」两个编辑区的完整内容（含用户未写入的手写修改），baseDeclaration/baseImplementation 是磁盘基线：逐段比较即为工作台此刻显示的差异。CODESYS 的两个编辑区各自从第 1 行编号，行号不要跨区累加。'
           : '工作台已绑定工程，但当前没有展开的代码对象；请用户先在项目树中选择一个对象。')
-        : '工作台已打开但尚未绑定 CODESYS 工程：请用户先在 CODESYS 中打开并保存工程，或在面板里手动选择 .project 文件。此时不要提出任何代码修改。'
+        : `工作台已打开但尚未绑定 CODESYS 工程。${CODESYS_WORKBENCH_UNBOUND_NEXT_STEP}`
       if (pendingProposal && pendingProposal.delivered === false) return `${base} 注意：你提交的差异已在队列中（${pendingProposal.id || 'proposal'}），工作台会在数秒内自动领取并高亮显示，无需重复提交，也不要在回复里声称已写入工程。`
       return base
     })(),
@@ -1056,7 +1008,7 @@ export function apply(ctx) {
     description: 'Search TaskHive knowledge repositories and return bounded evidence snippets. Read-only; cite results and do not treat them as authorization for device actions.',
     parameters: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer' } }, required: ['query'] },
     output: { schema: { type: 'object', additionalProperties: false, properties: { kind: { type: 'string' }, query: { type: 'string' }, hits: { type: 'array' }, scannedFiles: { type: 'integer' } }, required: ['kind', 'query', 'hits', 'scannedFiles'] }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    execute: (args, exec) => { exec.signal.throwIfAborted(); return Promise.resolve(searchDocuments('knowledge', args?.query, args?.limit)) },
+    execute: (args, exec) => { exec.signal.throwIfAborted(); return Promise.resolve(searchDocuments(args?.query, args?.limit)) },
   }, disposers)
   register(ctx, {
     name: 'taskhive_knowledge_audit',
@@ -1064,20 +1016,6 @@ export function apply(ctx) {
     parameters: { type: 'object', properties: {}, additionalProperties: false },
     output: { schema: { type: 'object', additionalProperties: false, properties: { kind: { type: 'string' }, version: { type: 'integer' }, entries: { type: 'array' } }, required: ['kind', 'version', 'entries'] }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     execute: (_args, exec) => { exec.signal.throwIfAborted(); return Promise.resolve(repositoryAudit('knowledge')) },
-  }, disposers)
-  register(ctx, {
-    name: 'taskhive_expert_dispatch',
-    description: 'Build a Harness-native expert-team dispatch plan from the TaskHive catalog and audited knowledge. This does not create a second Agent Loop and never authorizes real PLC actions.',
-    parameters: { type: 'object', properties: { task: { type: 'string' }, teamId: { type: 'string' } }, required: ['task'] },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string' }, execution: { type: 'string' }, agentLoop: { type: 'string' }, team: { type: 'object' }, safetyPolicy: { type: 'object' }, knowledgeEvidence: { type: 'object' }, task: { type: 'string' }, requiresHumanApproval: { type: 'boolean' } }, required: ['status', 'execution', 'agentLoop', 'team', 'safetyPolicy', 'knowledgeEvidence', 'task', 'requiresHumanApproval'] }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    execute: (args, exec) => { exec.signal.throwIfAborted(); return Promise.resolve(expertDispatch(args)) },
-  }, disposers)
-  register(ctx, {
-    name: 'taskhive_expert_run',
-    description: 'Execute the enabled TaskHive expert team as real DSH spawn subagents under the current Harness session. Each expert runs on its own configured provider/model (multi-model by default). Set continuable:true to start the children as durable continuable subagents and get back their childIds for follow-up multi-turn questioning via the native send_message tool; otherwise the team runs as one-shot children that are disposed after completion. Children are read-only and depth-limited. Use routeMode "inherited" only when a single-model run is actually wanted.',
-    parameters: { type: 'object', properties: { task: { type: 'string' }, teamId: { type: 'string' }, routeMode: { type: 'string', enum: ['inherited', 'configured'] }, maxMembers: { type: 'integer' }, continuable: { type: 'boolean' }, provider: { type: 'string' }, model: { type: 'string' }, reasoningEffort: { type: 'string' } }, required: ['task'] },
-    output: { schema: { type: 'object', additionalProperties: false, properties: { status: { type: 'string' }, execution: { type: 'string' }, agentLoop: { type: 'string' }, provider: { type: 'string' }, team: { type: 'object' }, parentSessionId: { type: 'string' }, runs: { type: 'array' }, failedCount: { type: 'integer' }, routeSummary: { type: 'object' }, children: { type: 'array' }, followUp: { type: 'object' }, continuation: { type: 'object' }, safetyPolicy: { type: 'object' }, requiresHumanApproval: { type: 'boolean' }, knowledgeEvidence: { type: 'object' }, knowledgeCandidate: { type: 'object' }, reason: { type: 'string' } }, required: ['status', 'execution', 'agentLoop', 'provider', 'team', 'parentSessionId', 'runs', 'failedCount', 'routeSummary', 'children', 'continuation', 'safetyPolicy', 'requiresHumanApproval', 'reason'] }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    execute: (args, exec) => runExpertTeam(ctx, args, exec),
   }, disposers)
   register(ctx, {
     name: 'taskhive_codesys_scriptengine_doctor',
@@ -1123,7 +1061,7 @@ export function apply(ctx) {
   }, disposers)
   register(ctx, {
     name: 'taskhive_codesys_workbench',
-    description: 'Read the live state of the TaskHive CODESYS code workbench for THIS session: the bound .project, the full text of the object currently open in the workbench editor (including the user\'s unsaved manual edits, with the on-disk base text for line-by-line comparison), every object already marked as changed, and any pending diff. Read-only, never touches the PLC. Call it before editing CODESYS code so the change targets exactly the code the user sees, and copy objectGuid from its result. Pass include:"project-snapshot" to also get the PROJECT-WIDE code snapshot (every code object\'s complete declaration/implementation, capped by size) — use that whenever the task is not limited to the single open object, instead of guessing from object names or counts.',
+    description: 'Read the live state of the TaskHive CODESYS code workbench for THIS session: the bound .project, the full text of the object currently open in the workbench editor (including the user\'s unsaved manual edits, with the on-disk base text for line-by-line comparison), every object already marked as changed, and any pending diff. Read-only, never touches the PLC. Call it before editing CODESYS code so the change targets exactly the code the user sees, and copy objectGuid from its result. Pass include:"project-snapshot" to also get the PROJECT-WIDE code snapshot (every code object\'s complete declaration/implementation, capped by size) — use that whenever the task is not limited to the single open object, instead of guessing from object names or counts. TaskHive binds the workbench to the CODESYS panel\'s current project automatically when the user opens the in-panel AI chat, and reading a project tree can take tens of seconds: when the result says projectBound:false, read its nextStep field and RETRY this tool before telling the user it is impossible.',
     parameters: {
       type: 'object',
       properties: {
@@ -1189,9 +1127,16 @@ export function apply(ctx) {
       const sessionId = String(exec.agent?.session?.id || '')
       if (!sessionId) throw new Error('当前会话不可用，无法把代码差异交给 CODESYS 代码工作台')
       const state = readWorkbenchState(sessionId)
-      if (!state?.projectPath) throw new Error('CODESYS 代码工作台尚未打开或尚未绑定工程：请让用户先在 TaskHive 的 CODESYS 面板打开「代码任务」并绑定工程，再提交代码差异')
+      if (!state?.projectPath) throw new Error(`CODESYS 代码工作台尚未打开或尚未绑定工程，差异没有排队（也没有写入任何文件）。${CODESYS_WORKBENCH_UNBOUND_NEXT_STEP}`)
       const changes = normalizeWorkbenchChanges(args)
-      const entry = queueWorkbenchProposal(sessionId, { summary: String(args?.summary || '').slice(0, 2000), changes }, args?.note)
+      // 本轮：排队时把**这一份提案是给哪个工程、哪一版源文件**记下来。`state` 就是本会话工作台
+      // 刚发布的活状态，所以身份与"模型此刻看到的那份工程"同源；工作台领走时会拿它与自己当前的
+      // 绑定比对 —— 工程换了或源 sha 变了，这份残留提案就不许再显示（见 pending 路由与
+      // 50-codesys-workbench.js 的 claimPendingProposal）。
+      const entry = queueWorkbenchProposal(sessionId, { summary: String(args?.summary || '').slice(0, 2000), changes }, args?.note, {
+        projectPath: String(state?.projectPath || ''),
+        sourceSha256: String(state?.sourceSha256 || ''),
+      })
       if (!entry) throw new Error('无法在工作台会话中登记代码差异')
       return Promise.resolve({
         kind: 'codesys-workbench-proposal',
@@ -1213,11 +1158,86 @@ export function apply(ctx) {
       })
     },
   }, disposers)
+  // T199（③）：**只读**的在线状态工具。它存在的理由是把 CODESYS 插件真正的强项（读程序
+  // 内部状态）接到 AI 这个操作面上，同时**不**重建用户已经删掉的"实时监视"：
+  //   · 按需：只有模型调用它时读一次内存，没有任何轮询/定时器；
+  //   · 只读：它不连接控制器、不登录、不下载、不在线修改、不写变量、不启停、不复位、不 Force；
+  //   · 已连接就返回真实状态（连接/登录/应用状态/目标设备/已授权能力/面板上一次读到的变量值），
+  //     未连接就返回**一行可读原因 + 一条可执行的下一步**。
+  register(ctx, {
+    name: 'taskhive_codesys_online',
+    description: 'Read ONCE the online state of the CODESYS workbench for THIS session: whether the persistent online session is running, whether the controller is connected, whether the application is logged in, the login mode (monitor-only vs transfer), the application state the PLC reports, the bound target/device, which online capabilities the operator currently has armed, the last batch of online variable values the workbench already observed (with the time it observed them), and how old that observation is (observedAgeSeconds plus a readable freshness line). READ-ONLY and on-demand: this tool never contacts the controller, never logs in, never downloads, never performs an online change, never writes a variable and never starts/stops/resets/forces anything — it only reports what the workbench already knows, and it does no polling. Pass include:"values" to also get the observed variable values (valuesObservedAt plus valuesAgeSeconds say how fresh they are). If include:"values" comes back with an empty list, valuesNote says exactly which step is missing — relay it verbatim: either the application is not logged in yet (the only step that logs it in is the operator clicking download) or the workbench is logged in but has not observed any value yet, in which case the operator only has to switch the code editor to a POU (the values are read automatically while logged in — there is no "在线值" toggle to turn on any more, it was removed at the operator\'s request); never tell the user to click a switch, and never claim the values were read when they were not. When the result says connected:false, or says connected:true with loggedIn:false, or says reported:false, read its reason / loginVisibility / nextStep fields and tell the user exactly what to click in the panel; never claim a PLC action happened, and never attempt to write to a controller from a tool. Note that observedAt is when the panel last observed a CHANGE, not the moment you read it, so an unchanged state legitimately keeps the same observedAt — report observedAgeSeconds instead of presenting that stamp as "now".',
+    parameters: {
+      type: 'object',
+      properties: {
+        include: {
+          type: 'string',
+          enum: ['state', 'values'],
+          description: 'state (default) returns the online session state only; values additionally returns the last batch of online variable values the workbench observed, each with its observation time.',
+        },
+      },
+      additionalProperties: false,
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string' },
+          readOnly: { type: 'boolean' },
+          available: { type: 'boolean' },
+          reported: { type: 'boolean' },
+          connected: { type: 'boolean' },
+          running: { type: 'boolean' },
+          loggedIn: { type: 'boolean' },
+          loginMode: { type: 'string' },
+          applicationState: { type: 'string' },
+          deviceName: { type: 'string' },
+          bound: { type: 'boolean' },
+          target: { type: 'object' },
+          authorization: { type: 'object' },
+          deniedCapabilities: { type: 'array' },
+          values: { type: 'array' },
+          valuesObservedAt: { type: 'string' },
+          // 本轮 B 项（用户报障原文：「而且对话依然读取不到在线变量」）：值**取不到**时
+          // 不能只回一个空数组 —— 模型手里只有 `values:[]` 就只能干说"读不到"。这一行
+          // 如实说清缺的是哪一步（是没登录、还是已登录但代码编辑区还没打开一个 POU），值是
+          // **取到**的时候它是空串（不制造噪音）。本轮起它**不再**指向任何开关：那枚
+          // 「在线值」开关已按用户要求删除，登录后读值默认就是开着的。
+          valuesNote: { type: 'string' },
+          // 值的观测时刻**有多旧**（秒；拿不到时刻时是 -1）。observedAgeSeconds 是整份
+          // 快照的年龄，这一个只针对值本身。
+          valuesAgeSeconds: { type: 'number' },
+          observedAt: { type: 'string' },
+          // 本轮：观测时刻有多旧。observedAgeSeconds 是机器可读的秒数（拿不到时刻时是 -1），
+          // freshness 是一行说明 —— 它把"observedAt 是面板最后一次观测到**变化**的时刻、
+          // 不是'我此刻读到的时刻'"讲清楚，免得模型把旧时刻当成现状去汇报。
+          observedAgeSeconds: { type: 'number' },
+          freshness: { type: 'string' },
+          // 本轮（B 项）：① 网关"另有客户端连着"的弱信号，如实展示、不当判据；
+          // ② 把"为什么读不到登录状态"说清楚的一行 + 唯一能成功的那一步。
+          //    没有应用层登录时必有（含"已连接但未登录"）；loggedIn:true 时必须是空串
+          //    （已经能看到登录后的状态了，再挂一行说明就成了过期的解释）。
+          sharedConnected: { type: 'boolean' },
+          reason: { type: 'string' },
+          nextStep: { type: 'string' },
+          loginVisibility: { type: 'string' },
+          note: { type: 'string' },
+        },
+        required: ['kind', 'readOnly', 'available', 'reported', 'connected', 'running', 'loggedIn', 'loginMode', 'applicationState', 'deviceName', 'bound', 'target', 'authorization', 'deniedCapabilities', 'values', 'valuesObservedAt', 'valuesNote', 'valuesAgeSeconds', 'observedAt', 'observedAgeSeconds', 'freshness', 'sharedConnected', 'reason', 'nextStep', 'loginVisibility', 'note'],
+      },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    execute: (args, exec) => {
+      exec.signal.throwIfAborted()
+      return Promise.resolve(onlineToolPayload(exec.agent?.session?.id, args?.include))
+    },
+  }, disposers)
   // The workbench link needs a fenced route (page → host) and a one-line system
   // prompt note so a request typed in the CHAT also reaches the workbench.
   if (typeof ctx.inject === 'function') {
     try {
-      ctx.inject(['webServer', 'webRuntime'], (scope) => {
+      ctx.inject(['webServer', 'webRuntime', 'workspaceRegistry'], (scope) => {
         const dispose = installWorkbenchRoutes(scope)
         return () => { try { dispose?.() } catch { /* already disposed */ } }
       })

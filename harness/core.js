@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+// T151：trajectory 原本用裸 appendFileSync **完全没有轮转**（实测 2.78 MB / 18412 行，
+// 每会话约 132 KB/天且只增不减；每次工具调用写 2 行）。改走已有的带轮转实现。
+const { appendDiagnosticLog } = require('../app/diagnostic-log');
 
 class HarnessCore {
   constructor(root) {
@@ -12,9 +15,10 @@ class HarnessCore {
   }
 
   append(type, payload = {}) {
-    fs.appendFileSync(this.logPath, `${JSON.stringify({
+    // 4 MB × 2 份轮转；写失败绝不抛（由 appendDiagnosticLog 内部兜底）。
+    appendDiagnosticLog(this.logPath, `${JSON.stringify({
       at: new Date().toISOString(), type, payload,
-    })}\n`, 'utf8');
+    })}\n`, { maxBytes: 4 * 1024 * 1024, backups: 2 });
   }
 
   status() {

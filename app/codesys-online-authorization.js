@@ -16,6 +16,8 @@
 
 const fs = require('fs');
 const path = require('path');
+// T153：审计日志改走带轮转的实现。
+const { appendDiagnosticLog } = require('./diagnostic-log');
 
 // CODESYS 暴露 12 项 PLC 在线能力。其中 9 项能通过 ScriptEngine 实现；另外 3 项
 // 在本版本（SP20 / ScriptEngine 4.1）**没有任何接口** —— 21.5 MB 官方 API dump 里
@@ -35,6 +37,12 @@ const ONLINE_CAPABILITIES = Object.freeze([
 ]);
 
 const UNSUPPORTED_ONLINE_CAPABILITIES = Object.freeze(['debug', 'breakpoint', 'step']);
+
+// T151：**不传 capabilities 时只能得到最小集合**。旧代码把"没指定"解释成"全给"，
+// 于是 `arm({})` 会一次性授予 start/stop/reset/force/write-variable/online-change ——
+// 与文件头声明的"只有 login/logout/download 可授予"直接矛盾，也让任何调用方
+// 用一个空对象就绕过全部在线安全锁。
+const DEFAULT_GRANTABLE_CAPABILITIES = Object.freeze(['login', 'logout', 'download']);
 
 // 三类能驱动机械 / 绕过程序逻辑 / 清保持变量的动作：必须输入确认词才放行。
 // 取消强制（unforce）故意**不**列入：把 Force 摘掉是安全方向，不该被加锁。
@@ -88,8 +96,8 @@ function createOnlineAuthorizationStore(options = {}) {
     if (!auditPath) return;
     const record = { at: now().toISOString(), ...entry };
     try {
-      fs.mkdirSync(path.dirname(auditPath), { recursive: true });
-      fs.appendFileSync(auditPath, `${JSON.stringify(record)}\n`, 'utf8');
+      // T153：走带轮转的实现（原先裸 appendFileSync，审计文件只增不减）。
+      appendDiagnosticLog(auditPath, `${JSON.stringify(record)}\n`, { maxBytes: 4 * 1024 * 1024, backups: 1 });
     } catch {
       // Audit is best effort: never let a logging failure break an operation.
     }
@@ -121,7 +129,7 @@ function createOnlineAuthorizationStore(options = {}) {
     }
     const requested = Array.isArray(input.capabilities) && input.capabilities.length
       ? input.capabilities
-      : ONLINE_CAPABILITIES;
+      : DEFAULT_GRANTABLE_CAPABILITIES;
     const capabilities = [...new Set(requested.map((item) => String(item || '').trim().toLowerCase()))];
     const rejected = capabilities.filter((item) => !ONLINE_CAPABILITIES.includes(item));
     if (rejected.length) {

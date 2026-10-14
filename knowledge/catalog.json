@@ -9,6 +9,14 @@
       "manifestHash": "51732274dec81fe481e568dd9bef602d2c86db31e29b12bbe01e628a0d72df5a",
       "state": "enabled",
       "installedAt": "2026-08-23T00:00:00.000Z"
+    },
+    "taskhive-open-source": {
+      "id": "taskhive-open-source",
+      "name": "TaskHive 开源插件索引",
+      "version": "2026.10.02",
+      "source": "curated:github-search-2026-10-02",
+      "state": "enabled",
+      "installedAt": "2026-10-02T00:00:00.000Z"
     }
   }
 }

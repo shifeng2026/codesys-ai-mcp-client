@@ -1,29 +1,31 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { desktopCapturer } = require('electron');
-const { bitmapLooksBlack, desktopSourceId, pngDimensions } = require('./codesys-capture-contract');
+const { desktopSourceId } = require('./codesys-capture-contract');
 
 const execFileAsync = promisify(execFile);
 const SCRIPT = path.join(__dirname, 'win-window-monitor.ps1');
 
-function thumbnailLooksBlack(thumbnail) {
-  if (!thumbnail || thumbnail.isEmpty()) return true;
-  const size = thumbnail.getSize();
-  return !size.width || !size.height || bitmapLooksBlack(thumbnail.toBitmap());
-}
-
+// 用户的删除要求（2026-10）：去掉"AI 实时监视"能力。本模块过去同时承担**窗口枚举/身份**
+// 与**画面捕获/实时流**两件事，现在只保留前者 —— 原生窗口托管（codesys-native-host.js、
+// codesys-input.js、codesys-current-project.js）依赖的正是这一半：
+//   listRawWindows / listWindows / cachedWindow / invalidateWindow / resolveWindow /
+//   resolveDesktopSource / pruneCaptures
+// 已删除：fitWindowToCanvas / captureNative / capture / startStream / stopStream / stopAll
+// 与 `streams` 状态（连同 `win-window-monitor.ps1` 的 `capture`/`fit` 模式）。
 class CodesysWindowMonitor {
   constructor(root, options = {}) {
     this.root = root;
     this.ownership = options.ownership || null;
     this.captureDir = path.join(root, 'cache', 'screen-vision');
     fs.mkdirSync(this.captureDir, { recursive: true });
-    this.streams = new Map();
+    // T153：启动时裁一次历史遗留截图（原先这些 PNG 永久累积，每张约 1.6 MB）。
+    this.pruneCaptures();
     this.windowCache = new Map();
     this.windowCacheAt = 0;
+    this.lastList = null;
   }
 
   async invoke(args) {
@@ -39,9 +41,22 @@ class CodesysWindowMonitor {
     return Array.isArray(parsed) ? parsed : [parsed];
   }
 
-  async listWindows() {
+  async listWindows(options = {}) {
+    // T153：允许复用"刚出炉的快照"。CODESYS follow 循环**每秒**调一次本方法，
+    // 每次都起一个 PowerShell 进程（实测 662–1034 ms）。允许 ≤4 s 的快照后，
+    // 每秒一次变成每 4 秒一次；需要绝对实时的调用方传 `maxAgeMs: 0`（默认）。
+    const maxAgeMs = Number(options.maxAgeMs) || 0;
+    if (maxAgeMs > 0 && this.lastList && Date.now() - this.lastList.at <= maxAgeMs) return this.lastList.windows;
     const enumerated = await this.listRawWindows();
-    const windows = this.ownership ? this.ownership.filterWindows(enumerated) : enumerated;
+    const owned = this.ownership ? this.ownership.filterWindows(enumerated) : enumerated;
+    // T137：面板必须能看到**用户自己启动的** CODESYS。此前这里只返回本插件启动的窗口，
+    // 于是外部启动的 CODESYS（典型：停在「选择配置文件」对话框、尺寸 394×127）被整条丢弃，
+    // 面板只能显示"尚未发现由本插件打开的 CODESYS 窗口" —— 用户看到的就是"显示不对"。
+    // 外部窗口带 `owned:false` 交给界面标注；`usable:false` + `reason` 已能表达
+    // "尺寸过小/最小化"，界面据此显示「等待恢复」。
+    const ownedIds = new Set(owned.map((item) => String(item.id)));
+    const windows = owned.map((item) => ({ ...item, owned: true }))
+      .concat(enumerated.filter((item) => !ownedIds.has(String(item.id))).map((item) => ({ ...item, owned: false })));
     const identity = new Map(windows.map((item) => [String(item.id), item]));
     // Windows recycles HWND values the moment the owning window is destroyed, so a
     // handle that was CODESYS a moment ago can already belong to an unrelated
@@ -53,7 +68,29 @@ class CodesysWindowMonitor {
     }
     for (const [id, item] of identity) this.windowCache.set(id, item);
     this.windowCacheAt = Date.now();
+    this.lastList = { at: this.windowCacheAt, windows };
     return windows;
+  }
+
+  // T153：截图缓存原先**永不裁剪**（每张约 1.6 MB，持久化路径默认开启）。
+  // 保留最近 20 张 / 7 天，其余删除。监视能力删除后这里只清理历史遗留文件。
+  pruneCaptures(keep = 20, maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+    try {
+      const files = fs.readdirSync(this.captureDir)
+        .filter((name) => name.endsWith('.png'))
+        .map((name) => {
+          const full = path.join(this.captureDir, name);
+          let at = 0;
+          try { at = fs.statSync(full).mtimeMs; } catch { /* skip */ }
+          return { full, at };
+        })
+        .sort((left, right) => right.at - left.at);
+      const now = Date.now();
+      for (const entry of files.slice(keep)) {
+        if (now - entry.at < maxAgeMs && files.length <= keep * 2) continue;
+        try { fs.rmSync(entry.full, { force: true }); } catch { /* best effort */ }
+      }
+    } catch { /* best effort */ }
   }
 
   cachedWindow(windowId) {
@@ -80,6 +117,57 @@ class CodesysWindowMonitor {
     const cached = this.cachedWindow(windowId);
     if (cached && Date.now() - this.windowCacheAt < 5000) return cached;
     return (await this.listWindows()).find((item) => String(item.id) === String(windowId)) || null;
+  }
+
+  // T199：工作台绑定唯一采用的是**这个方法**，不是 `resolveWindow`。
+  //
+  // `resolveWindow` 回答的是"这个句柄现在在不在可见枚举里"，而那不是稳定身份：CODESYS 启动时
+  // 会销毁并重建自己的顶层窗口（实测 `0x1204AC → 0x1304AC`，启动后 71 s，见审计
+  // `native-host-window-replaced`），而面板的下拉框只在刷新时重新枚举 —— 它手里可能还握着
+  // 已销毁的旧句柄。此时旧代码给出的是"这个窗口不是本插件打开的"，而事实恰好相反：本插件
+  // 启动了那个进程，只是它的句柄换了。用户看到的就是"面板明明检测到并绑定成功，点代码任务
+  // 却被拒"。
+  //
+  // 稳定的身份是**本插件启动的 PID**（与原生托管看门狗 T188 同一条判据）。所以：记住的句柄
+  // 解析不出窗口时，改用它所属 PID 的**当前**顶层窗口，而不是拒绝。人口一点没放大 —— 只有
+  // 本插件启动过的 PID（本次登记或上一轮 `codesys-launched.json` 记录）能答出来。
+  //
+  // T208 之后，"外部启动的 CODESYS 依旧绑不上"这句话要加一个**唯一的**例外：调用方显式传入
+  // `options.explicitSelection`（用户真的点选过的那个窗口，见下面的判据）。不传的调用方 ——
+  // 也就是本仓其余所有调用点 —— 看到的判据与 T199 逐字相同。
+  async resolveOwnedWindow(windowId, requestedPid = 0, options = {}) {
+    const wanted = String(windowId || '');
+    const windows = await this.listWindows();
+    const exact = windows.find((item) => String(item.id) === wanted) || null;
+    // 精确命中**且归属成立**才算数：`listWindows` 为了面板下拉会把外部窗口也带回来
+    // （T137，`owned:false`），所以这里必须显式过一遍 `ownsWindow`。
+    if (exact && (!this.ownership || this.ownership.ownsWindow(exact))) return exact;
+    // T208：**唯一**一条能把"外部启动"的窗口交给工作台的额外授权，而且只能由调用方
+    // **显式传入**一个形状严格的凭据：
+    //
+    //     options.explicitSelection = { windowId, source: 'user-selection', automatic: false }
+    //
+    // 由"用户真的在下拉里点过一下"这件事产生 —— 主进程自己记着那条选择（`main.js` 的
+    // `codesysExplicitWindowSelection`），并**只**从那条记录里构造凭据；请求体里的任何
+    // 同名字段都不参与，所以渲染层伪造不出来。这里的四条判据缺一不可：
+    //   * `automatic === false`  —— 自动路径（进面、刷新、跟随本插件启动的进程、自愈）永远不带；
+    //   * `source === 'user-selection'` —— 换个来源（例如某个"内部调用"）一律不算；
+    //   * `windowId` 与本次请求的句柄**逐字相同** —— 拿别的窗口（含"我曾经选过的那一个"）的
+    //     凭据来指另一个句柄，不算数；
+    //   * `exact` 必须仍然命中**这一次**枚举，且 `owned === false` —— 窗口被关掉、句柄被回收、
+    //     或它根本不是外部启动的窗口时，凭据作废。
+    // 形状不合法就当没传，继续往下走归属判定（也就是拒绝）。**默认行为一个字没松**：不传
+    // `explicitSelection` 的调用方依旧只认"本插件启动过的 PID"。
+    const explicit = options.explicitSelection;
+    if (exact && exact.owned === false && explicit
+      && explicit.automatic === false && explicit.source === 'user-selection'
+      && String(explicit.windowId || '') === wanted) return exact;
+    if (!this.ownership) return exact;
+    const pid = this.ownership.ownedPidForWindow(wanted, requestedPid, options.launchedPids);
+    if (!pid) return null;
+    const preferred = String(options.preferredWindowId || '');
+    return this.ownership.primaryWindow(windows, pid, preferred)
+      || this.ownership.windowForOwnedPid(windows, pid, preferred);
   }
 
   async resolveDesktopSource(windowId) {
@@ -119,168 +207,6 @@ class CodesysWindowMonitor {
       resolvedAt: new Date().toISOString(),
     };
   }
-
-  async fitWindowToCanvas(windowId, options = {}) {
-    const target = await this.resolveWindow(windowId);
-    if (!target) throw Object.assign(new Error('CODESYS window is unavailable or not opened by this plugin'), { code: 'CODESYS_WINDOW_FIT_TARGET_INVALID' });
-    this.ownership?.assertWindow(target);
-    const canvasWidth = Math.round(Number(options.canvasWidth));
-    const canvasHeight = Math.round(Number(options.canvasHeight));
-    if (canvasWidth < 320 || canvasHeight < 200) throw Object.assign(new Error('CODESYS 插件画布尺寸不足'), { code: 'CODESYS_WINDOW_FIT_CANVAS_INVALID' });
-    const output = await this.invoke([
-      '-Mode', 'fit', '-WindowId', String(target.id), '-ExpectedPid', String(target.pid),
-      '-CanvasWidth', String(canvasWidth), '-CanvasHeight', String(canvasHeight),
-      ...(target.windowPhase === 'launch' ? ['-PreserveSize'] : []),
-      ...(target.fixture !== true ? ['-HideTaskbar'] : []),
-      ...(target.fixture === true ? ['-AllowFixture'] : []),
-    ]);
-    const fitted = JSON.parse(output);
-    this.windowCacheAt = 0;
-    return { ...fitted, pluginOwned: true, ownership: target.ownership, windowPhase: target.windowPhase || 'main', sourceWindowId: String(target.id) };
-  }
-
-  async captureNative(target, options = {}, reason = 'chromium-frame-unavailable') {
-    const persist = options.persist !== false;
-    // The PID always comes from the window record that enumeration validated, never
-    // from an unvalidated caller string: PowerShell re-checks it so a recycled HWND
-    // can never be captured and shipped to the AI as "the CODESYS screen".
-    const expectedPid = Number(target?.pid);
-    if (!(expectedPid > 0)) throw Object.assign(new Error('CODESYS window identity is unavailable'), { code: 'CODESYS_WINDOW_IDENTITY_INVALID' });
-    const file = path.join(this.captureDir, `codesys-native-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.png`);
-    try {
-      await this.invoke([
-        '-Mode', 'capture', '-WindowId', String(target.id), '-ExpectedPid', String(expectedPid), '-OutputPath', file,
-        ...(target.fixture === true ? ['-AllowFixture'] : []),
-      ]);
-    } catch (error) {
-      // An identity failure proves this cached handle is no longer the window it was
-      // enumerated as (exited process or recycled HWND), so drop it from the cache.
-      if (/PID identity changed|verified CODESYS processes|window process is unavailable|window handle is invalid/i.test(String(error?.message || ''))) {
-        this.invalidateWindow(target.id);
-      }
-      throw error;
-    }
-    const buffer = fs.readFileSync(file);
-    const size = pngDimensions(buffer);
-    if (!size) throw new Error('Windows HWND capture did not return a valid PNG frame');
-    if (!persist) {
-      try { fs.unlinkSync(file); } catch { /* diagnostic cache cleanup is best effort */ }
-    }
-    return {
-      path: persist ? file : null,
-      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
-      capturedAt: new Date().toISOString(),
-      width: size.width,
-      height: size.height,
-      completeFrame: size.width >= 320 && size.height >= 200,
-      captureTransport: 'windows-printwindow',
-      captureFallbackReason: reason,
-      dataUrl: `data:image/png;base64,${buffer.toString('base64')}`,
-    };
-  }
-
-  async capture(windowId, options = {}) {
-    const captureStartedAt = Date.now();
-    if (!windowId) throw new Error('缺少窗口 ID');
-    const target = await this.resolveWindow(windowId);
-    if (!target || target.usable === false) throw new Error('CODESYS window is unavailable or minimized');
-    if (options.forceNative === true) return this.captureNative(target, options, 'real-codesys-native-stream');
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: { width: Math.max(320, Number(target.width) || 1280), height: Math.max(200, Number(target.height) || 720) },
-      fetchWindowIcons: false,
-    });
-    const source = sources.find((item) => item.id === desktopSourceId(target.id));
-    if (!source || source.thumbnail.isEmpty()) return this.captureNative(target, options, 'chromium-source-unavailable');
-    if (thumbnailLooksBlack(source.thumbnail)) return this.captureNative(target, options, 'chromium-frame-black');
-    const size = source.thumbnail.getSize();
-    const persist = options.persist !== false;
-    const buffer = persist ? source.thumbnail.toPNG() : source.thumbnail.toJPEG(82);
-    const width = size.width;
-    const height = size.height;
-    let file = null;
-    if (persist) {
-      file = path.join(this.captureDir, `codesys-${Date.now()}.png`);
-      fs.writeFileSync(file, buffer);
-    }
-    return {
-      path: file,
-      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
-      capturedAt: new Date().toISOString(),
-      width,
-      height,
-      completeFrame: width >= 320 && height >= 200,
-      captureTransport: 'electron-desktop-capturer',
-      captureDurationMs: Date.now() - captureStartedAt,
-      dataUrl: `data:image/${persist ? 'png' : 'jpeg'};base64,${buffer.toString('base64')}`,
-    };
-  }
-
-  async startStream(windowId, options = {}, onFrame) {
-    if (!windowId) throw new Error('缺少窗口 ID');
-    const initialTarget = await this.resolveWindow(windowId);
-    if (!initialTarget || initialTarget.usable === false) throw Object.assign(new Error('CODESYS window is unavailable, minimized, or not opened by this plugin'), { code: 'CODESYS_STREAM_TARGET_INVALID' });
-    this.stopStream(windowId);
-    const intervalMs = Math.max(80, Math.min(2000, Number(options.intervalMs) || 125));
-    const stream = { key: String(windowId), windowId: String(windowId), target: initialTarget, selector: { title: initialTarget.title || null, processName: initialTarget.processName || 'CODESYS', pid: Number(initialTarget.pid) || null, followPidUntil: options.followPid === true ? Date.now() + 60000 : 0 }, intervalMs, busy: false, frames: 0, droppedFrames: 0, completeFrames: 0, reconnects: 0, windowTransitions: 0, lastFollowCheckAt: 0, startedAt: Date.now(), timer: null, connected: true, lastFrameAt: null, lastError: null };
-    const tick = async () => {
-      const tickStartedAt = Date.now();
-      if (stream.busy) { stream.droppedFrames += 1; return; }
-      stream.busy = true;
-      try {
-        if (stream.selector.followPidUntil > Date.now() && Date.now() - stream.lastFollowCheckAt >= 900 && stream.selector.pid) {
-          stream.lastFollowCheckAt = Date.now();
-          const candidates = await this.listWindows();
-          const primary = this.ownership?.primaryWindow(candidates, stream.selector.pid, stream.windowId)
-            || candidates.find((item) => item.usable !== false && Number(item.pid) === Number(stream.selector.pid) && String(item.id) === String(stream.windowId));
-          if (primary) {
-            stream.target = primary;
-            if (String(primary.id) !== String(stream.windowId)) {
-              stream.windowId = String(primary.id);
-              stream.windowTransitions += 1;
-            }
-          }
-        }
-        const frame = await this.capture(stream.windowId, { persist: false, forceNative: options.forceNative === true });
-        if (frame.completeFrame === false) throw new Error(`incomplete-frame:${frame.width || 0}x${frame.height || 0}`);
-        stream.frames += 1;
-        if (frame.completeFrame === true) stream.completeFrames += 1;
-        stream.connected = true;
-        stream.lastError = null;
-        stream.lastFrameAt = Date.now();
-        onFrame?.({ ...frame, stream: { windowId: stream.windowId, target: stream.target, frames: stream.frames, completeFrames: stream.completeFrames, droppedFrames: stream.droppedFrames, reconnects: stream.reconnects, windowTransitions: stream.windowTransitions, fps: stream.frames / Math.max(1, (Date.now() - stream.startedAt) / 1000), connected: true, latencyMs: Math.max(0, Date.now() - tickStartedAt), captureDurationMs: frame.captureDurationMs, lastFrameAt: frame.capturedAt } });
-      } catch (error) {
-        stream.connected = false;
-        stream.lastError = error.message;
-        let reconnected = false;
-        try {
-          const candidates = await this.listWindows();
-          const found = stream.selector.pid
-            ? (this.ownership?.primaryWindow(candidates, stream.selector.pid, stream.windowId) || candidates.find((item) => item.usable !== false && Number(item.pid) === Number(stream.selector.pid)))
-            : candidates.find((item) => item.usable !== false && ((stream.selector.title && item.title === stream.selector.title) || item.processName === stream.selector.processName));
-          if (found) { stream.windowId = String(found.id); stream.target = found; reconnected = true; stream.reconnects += 1; stream.connected = true; }
-        } catch { /* keep disconnected state */ }
-        onFrame?.({ stream: { windowId: stream.windowId, target: stream.target, error: error.message, connected: stream.connected, reconnected, reconnects: stream.reconnects, windowTransitions: stream.windowTransitions, frames: stream.frames, completeFrames: stream.completeFrames, droppedFrames: stream.droppedFrames, lastFrameAt: stream.lastFrameAt ? new Date(stream.lastFrameAt).toISOString() : null } });
-      } finally {
-        stream.busy = false;
-        if (this.streams.get(stream.key) === stream) stream.timer = setTimeout(() => void tick(), Math.max(0, intervalMs - (Date.now() - tickStartedAt)));
-      }
-    };
-    this.streams.set(String(windowId), stream);
-    await tick();
-    return { windowId: stream.windowId, intervalMs, state: 'streaming', connected: stream.connected, frames: stream.frames, completeFrames: stream.completeFrames, droppedFrames: stream.droppedFrames, reconnects: stream.reconnects };
-  }
-
-  stopStream(windowId) {
-    const key = String(windowId || '');
-    const stream = this.streams.get(key) || [...this.streams.values()].find((candidate) => candidate.windowId === key || candidate.key === key);
-    if (!stream) return { windowId: key, state: 'idle' };
-    clearTimeout(stream.timer);
-    this.streams.delete(stream.key);
-    return { windowId: stream.windowId, state: 'stopped', frames: stream.frames, completeFrames: stream.completeFrames, droppedFrames: stream.droppedFrames, reconnects: stream.reconnects, lastError: stream.lastError };
-  }
-
-  stopAll() { for (const key of this.streams.keys()) this.stopStream(key); }
 }
 
 module.exports = { CodesysWindowMonitor };

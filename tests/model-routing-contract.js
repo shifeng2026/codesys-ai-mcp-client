@@ -1,6 +1,7 @@
 'use strict'
 
 const assert = require('node:assert')
+const { registrationIndex } = require('./lib/source-anchors')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
 
@@ -54,12 +55,12 @@ assert(main.includes('function scheduleModelCatalogRefresh('), 'a visibility cha
 // must refuse to hide the model the default route is currently using. Only the
 // first was enforced, which is how this catalog ended up with
 // `defaultRoute = codex-cli/gpt-5.5` while `gpt-5.5` was hidden.
-const setVisibleHandler = main.slice(main.indexOf("ipcMain.handle('models:set-visible'"), main.indexOf("ipcMain.handle('models:add-custom'"))
+const setVisibleHandler = main.slice(registrationIndex(main, 'models:set-visible'), registrationIndex(main, 'models:add-custom'))
 assert(
   /defaultRoute\?\.providerId === provider\.id && modelCatalog\.defaultRoute\?\.modelId === modelId/.test(setVisibleHandler),
   'models:set-visible must refuse to hide the model the current default route uses',
 )
-assert(/scheduleModelCatalogRefresh\(\)/.test(main.slice(main.indexOf("ipcMain.handle('models:set-visible'"), main.indexOf("ipcMain.handle('models:add-custom'"))), 'models:set-visible must refresh the Harness')
+assert(/scheduleModelCatalogRefresh\(\)/.test(main.slice(registrationIndex(main, 'models:set-visible'), registrationIndex(main, 'models:add-custom'))), 'models:set-visible must refresh the Harness')
 // A hung CLI must not hold a turn forever, but the cap has to fit the gateway: this
 // install's answers a trivial prompt in 46-79s and sometimes past 300s, so the old
 // hardcoded 120s failed ordinary turns. It is now generous and overridable.
@@ -80,13 +81,17 @@ assert(main.includes("defaultRoute: { providerId: 'codex-cli', modelId: 'gpt-5.5
 // state, so the invariant is "the composer lists exactly the visible catalog
 // models". The probe derives the expected counts from the catalog the app
 // reports and compares the native picker against them.
-assert(main.includes('let expected = { gpt: 0, web: 0, local: 0 }'), 'the probe must derive expected counts, not hardcode them')
+assert(main.includes('let expected = { gpt: 0, web: 0, local: 0, claude: 0 }'), 'the probe must derive expected counts, not hardcode them')
 assert(main.includes("const visibleCount = (pid) => { const entry = cat.providers.find((item) => item.id === pid); return ((entry && entry.models) || []).filter((m) => cat.visibility[pid + '::' + m] !== false).length; }"), 'expected counts must come from the reported catalog visibility')
 assert(main.includes('const visibleCodexCount = expected.gpt'), 'the Codex comparison must use the derived count')
+assert(main.includes('const visibleClaudeCount = expected.claude'), 'the Claude comparison must use the derived count')
 assert(main.includes('result.nativeWebModels?.length === visibleWebCount'), 'the web model count must be compared, not pinned')
 assert(main.includes('result.nativeLocalModels?.length === visibleLocalCount'), 'the local model count must be compared, not pinned')
 assert(main.includes('result.nativeGptModels?.length === visibleCodexCount'), 'the composer must be compared against the reported catalog')
-for (const pinned of ['result.nativeWebModels?.length === 8', 'result.nativeLocalModels?.length === 4', "const nativeGptModels = ['GPT-6 Astra', 'GPT-5.5']"]) {
+// Claude was the last count still written as a literal; a user toggling the
+// claude-code visibility map used to fail the smoke for that reason alone.
+assert(main.includes('result.nativeClaudeModels?.length === visibleClaudeCount'), 'the Claude count must be compared, not pinned')
+for (const pinned of ['result.nativeWebModels?.length === 8', 'result.nativeLocalModels?.length === 4', 'result.nativeClaudeModels?.length === 3', "const nativeGptModels = ['GPT-6 Astra', 'GPT-5.5']"]) {
   assert(!main.includes(pinned), `the pinned assertion must be gone: ${pinned}`)
 }
 // A visibility change must be waited for, because it now triggers a Harness

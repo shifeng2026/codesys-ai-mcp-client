@@ -1,4 +1,7 @@
-# TaskHive surfaces are registered through the real Better Sidebar service.
+# TaskHive surfaces 以自身包名注册（与 package.json 的 name、profile bundles 条目一致）。
+# 这里曾写 `@taskhive/surfaces`（一个并不存在的包名）—— DSH 解析不到该名字就会报
+# `taskhive-surfaces (@taskhive/surfaces): failed to import`，客户端插件整体不挂载，
+# 表现为：左侧栏没有「知识库 / CODESYS」入口、皮肤与面板全丢、smoke 的 workbench.ready=false。
 - insert:
     - id: taskhive-surfaces
-      name: '@taskhive/surfaces'
+      name: 'taskhive-surfaces'

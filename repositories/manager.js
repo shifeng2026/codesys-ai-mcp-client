@@ -3,12 +3,14 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+// T149：与主进程其余小 JSON 一致 —— 原子写入 + 读取损坏时隔离/回退，而不是静默清空。
+const { readJson, writeJson } = require('../app/atomic-json');
 const execFileAsync = promisify(execFile);
 
-const safeId = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+// T155：safeId 与备份保留策略改为与 plugins/manager.js **共享同一实现**（原先两文件各写一份，已漂移）。
+const { safeId, moveToBackup } = require('../plugins/catalog-shared');
 const configFor = {
   knowledge: { root: 'knowledge/repositories', staging: 'knowledge/staging', backups: 'knowledge/backups', manifest: ['knowledge.json', 'package.json'] },
-  experts: { root: 'experts/installed', staging: 'experts/staging', backups: 'experts/backups', manifest: ['expert.json', 'package.json'] },
 };
 
 class RepositoryManager {
@@ -17,13 +19,38 @@ class RepositoryManager {
     this.root = root; this.kind = kind; this.config = configFor[kind];
     this.base = path.join(root, this.config.root); this.staging = path.join(root, this.config.staging); this.backups = path.join(root, this.config.backups); this.catalogPath = path.join(root, this.kind, 'catalog.json');
     this.cardsPath = kind === 'knowledge' ? path.join(root, 'knowledge', 'cards.json') : null;
+    this.booksPath = kind === 'knowledge' ? path.join(root, 'knowledge', 'books.json') : null;
     this.syncPath = kind === 'knowledge' ? path.join(root, 'knowledge', 'sync-state.json') : null;
     for (const dir of [this.base, this.staging, this.backups]) fs.mkdirSync(dir, { recursive: true });
   }
-  catalog() { try { return JSON.parse(fs.readFileSync(this.catalogPath, 'utf8')); } catch { return { version: 1, repositories: {} }; } }
-  save(value) { fs.mkdirSync(path.dirname(this.catalogPath), { recursive: true }); fs.writeFileSync(this.catalogPath, JSON.stringify(value, null, 2), 'utf8'); }
-  cardsState() { if (!this.cardsPath) throw new Error('仅知识库支持知识卡片'); try { return JSON.parse(fs.readFileSync(this.cardsPath, 'utf8')); } catch { return { version: 1, revision: 0, cards: [] }; } }
-  saveCards(value) { fs.mkdirSync(path.dirname(this.cardsPath), { recursive: true }); fs.writeFileSync(this.cardsPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); }
+  catalog() { return readJson(this.catalogPath, { version: 1, repositories: {} }, { label: '知识库目录 catalog.json' }); }
+  save(value) { writeJson(this.catalogPath, value); }
+  // T149：知识卡片/书本/目录一律走**原子写入**（atomic-json）。
+  // 旧实现是裸 `writeFileSync` 覆盖 + 读取失败静默回退空对象 —— 磁盘满/进程被杀
+  // 时一次半截写就会让下次读取拿到空库，紧接着的保存把空库写回，**整库卡片会丢**。
+  cardsState() { if (!this.cardsPath) throw new Error('仅知识库支持知识卡片'); return readJson(this.cardsPath, { version: 1, revision: 0, cards: [] }, { label: '知识卡片 knowledge/cards.json' }); }
+  saveCards(value) { writeJson(this.cardsPath, value); }
+  // T152：**批量**改目录 —— 一次读 + 一次写。原先改书名要"每张卡一次 IPC、每次整文件
+  // 读-解析-序列化-写"，50 张卡就是 50 次同步全文件重写（还各写一条 trajectory）。
+  setCardsCategory(ids, category) {
+    const state = this.cardsState();
+    const wanted = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id)));
+    if (!wanted.size) return { changed: 0 };
+    const next = String(category == null ? '' : category).trim().slice(0, 40);
+    const now = new Date().toISOString();
+    let changed = 0;
+    for (const card of state.cards || []) {
+      if (!wanted.has(String(card.id))) continue;
+      if (next) card.category = next; else delete card.category;
+      card.updatedAt = now;
+      changed += 1;
+    }
+    if (!changed) return { changed: 0 };
+    state.revision += 1;
+    for (const card of state.cards || []) if (wanted.has(String(card.id))) card.revision = state.revision;
+    this.saveCards(state);
+    return { changed, revision: state.revision };
+  }
   listCards(query = '') {
     const state = this.cardsState(); const needle = String(query || '').trim().toLowerCase();
     return (state.cards || []).filter((card) => !needle || `${card.title} ${card.content} ${(card.tags || []).join(' ')}`.toLowerCase().includes(needle)).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -54,6 +81,46 @@ class RepositoryManager {
     const state = this.cardsState(); const card = (state.cards || []).find((item) => item.id === id); if (!card) throw new Error(`知识卡片不存在：${id}`);
     const next = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : null; if (!next) throw new Error('审核结果必须是 approve 或 reject');
     state.revision += 1; card.status = next; card.revision = state.revision; card.updatedAt = new Date().toISOString(); this.saveCards(state); return card;
+  }
+  // T141：用户可**自己整理目录** —— 把卡片归到某本"书（目录）"，或清空让它回到自动分类。
+  setCardCategory(id, category) {
+    const state = this.cardsState(); const card = (state.cards || []).find((item) => item.id === id);
+    if (!card) throw new Error(`知识卡片不存在：${id}`);
+    const next = String(category == null ? '' : category).trim().slice(0, 40);
+    state.revision += 1;
+    if (next) card.category = next; else delete card.category;
+    card.revision = state.revision; card.updatedAt = new Date().toISOString();
+    this.saveCards(state); return card;
+  }
+  // T144：书本元数据（自定义**名字 / 颜色**）。存在 knowledge/books.json：
+  //   { version:1, books: { "自动化": { color:"#3b6fd4" }, ... } }
+  // 重命名时同时把**显式指定**该目录的卡片一起改名（自动分类的卡片由客户端按自身规则改名，
+  // 客户端才知道自动分类结果，避免在宿主里重复一份规则）。
+  booksState() {
+    if (!this.booksPath) throw new Error('仅知识库支持书本');
+    return readJson(this.booksPath, { version: 1, books: {} }, { label: '知识书本 knowledge/books.json' });
+  }
+  saveBooks(value) { writeJson(this.booksPath, value); }
+  setBookMeta(from, patch = {}) {
+    const source = String(from == null ? '' : from).trim().slice(0, 40);
+    const title = String(patch.title == null ? '' : patch.title).trim().slice(0, 40);
+    const color = String(patch.color == null ? '' : patch.color).trim().slice(0, 24);
+    const target = title || source;
+    if (!target) throw new Error('书本名不能为空');
+    if (title && title !== source) {
+      const state = this.cardsState(); let touched = 0;
+      for (const card of state.cards || []) {
+        if (String(card.category || '') === source) { card.category = title; touched += 1; }
+      }
+      if (touched) { state.revision += 1; this.saveCards(state); }
+    }
+    const books = this.booksState();
+    books.books = books.books || {};
+    if (books.books[source] && target !== source) { books.books[target] = books.books[source]; delete books.books[source]; }
+    if (color) books.books[target] = { ...(books.books[target] || {}), color };
+    else if (books.books[target]) { delete books.books[target].color; if (!Object.keys(books.books[target]).length) delete books.books[target]; }
+    this.saveBooks(books);
+    return { title: target, color: (books.books[target] && books.books[target].color) || '' };
   }
   syncStatus() {
     if (!this.syncPath) throw new Error('仅知识库支持同步');
@@ -119,7 +186,7 @@ class RepositoryManager {
     const manifest = this.manifest(backup); const manifestId = safeId(manifest.id);
     if (manifestId !== safe || !manifest.name || !manifest.version) throw new Error(`${this.kind} 备份 manifest 与目录不匹配`);
     const target = path.join(this.base, safe);
-    if (fs.existsSync(target)) fs.renameSync(target, path.join(this.backups, `${safe}-${Date.now()}-displaced`));
+    if (fs.existsSync(target)) moveToBackup(target, this.backups, safe, { displaced: true });
     fs.renameSync(backup, target);
     catalog.repositories[safe] = { ...item, name: manifest.name, version: manifest.version, manifestHash: crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex'), state: 'enabled', restoredAt: new Date().toISOString() };
     delete catalog.repositories[safe].backup;
@@ -159,10 +226,10 @@ class RepositoryManager {
     if (/^(https?|ssh|git|file)[:/]/i.test(source) || /\.git$/i.test(source)) await execFileAsync('git', ['clone', '--depth', '1', source, staged], { windowsHide: true, timeout: 120000 });
     else { const local = path.resolve(source); if (!fs.existsSync(local) || !fs.statSync(local).isDirectory()) throw new Error('本地仓库目录不存在'); fs.cpSync(local, staged, { recursive: true, force: true }); }
     const manifest = this.manifest(staged); const id = safeId(manifest.id); if (!id || !manifest.name || !manifest.version) throw new Error('manifest 必须包含 id/name/version');
-    const target = path.join(this.base, id); if (fs.existsSync(target)) fs.renameSync(target, path.join(this.backups, `${id}-${Date.now()}`)); fs.renameSync(staged, target);
+    const target = path.join(this.base, id); if (fs.existsSync(target)) moveToBackup(target, this.backups, id); fs.renameSync(staged, target);
     const catalog = this.catalog(); const item = { id, name: manifest.name, version: manifest.version, source, manifestHash: crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex'), state: 'enabled', installedAt: new Date().toISOString() }; catalog.repositories[id] = item; this.save(catalog); return item;
   }
-  uninstall(id) { const safe = safeId(id); const target = path.join(this.base, safe); if (!fs.existsSync(target)) throw new Error(`${this.kind} 未安装：${safe}`); const backup = path.join(this.backups, `${safe}-${Date.now()}`); fs.renameSync(target, backup); const catalog = this.catalog(); if (catalog.repositories[safe]) catalog.repositories[safe] = { ...catalog.repositories[safe], state: 'uninstalled', backup, uninstalledAt: new Date().toISOString() }; this.save(catalog); return catalog.repositories[safe] || { id: safe, state: 'uninstalled', backup }; }
+  uninstall(id) { const safe = safeId(id); const target = path.join(this.base, safe); if (!fs.existsSync(target)) throw new Error(`${this.kind} 未安装：${safe}`); const backup = moveToBackup(target, this.backups, safe); const catalog = this.catalog(); if (catalog.repositories[safe]) catalog.repositories[safe] = { ...catalog.repositories[safe], state: 'uninstalled', backup, uninstalledAt: new Date().toISOString() }; this.save(catalog); return catalog.repositories[safe] || { id: safe, state: 'uninstalled', backup }; }
 }
 
 module.exports = { RepositoryManager };

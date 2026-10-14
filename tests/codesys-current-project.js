@@ -2,11 +2,11 @@
 
 const assert = require('assert');
 const fs = require('fs');
-const os = require('os');
+const { createTempDir } = require('./lib/temp-dir');
 const path = require('path');
 const { decodeOptionBuffer, decodeUlock, openProjectsFromLocks, projectNameFromWindowTitle, projectPathsFromOptions, resolveCurrentCodesysProject, ULOCK_SUFFIX } = require('../app/codesys-current-project');
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-codesys-current-'));
+const tempRoot = createTempDir('taskhive-codesys-current-');
 const projectPath = path.join(tempRoot, 'down_door0731.project');
 fs.writeFileSync(projectPath, 'fixture');
 

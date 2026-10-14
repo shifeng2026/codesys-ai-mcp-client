@@ -7,7 +7,12 @@ const MARKDOWN_NAME = 'TaskHive目录清单.md';
 const TEMP_NAME = /^TaskHive目录清单\..+\.tmp$/u;
 // 高变更目录：profiles、logs、cache、workspaces 与 _qa_runtime_* 会被持续写入，
 // 它们的事件不允许触发整树重扫，否则主线程会被反复冻结。
-const VOLATILE_PATH = /(?:^|\/)(?:profiles|logs|cache|workspaces|_qa_runtime_[^/]*)(?:\/|$)/i;
+// T149：白名单漏掉了**应用自己的 userData**（打包后 = `<install>\user-data`）。
+// Chromium/DSH 持续在写 `user-data\Network\Cookies`、`GPUCache\data_1`、
+// `Local Storage\leveldb\*.log`、`Partitions\*\IndexedDB\*`、`runtime\**` 等；
+// 本机实测活跃会话下整树重扫 = 9420 目录 / 41977 文件 / 2219 ms + 233 MB exe 重哈希，
+// 会近乎背靠背常驻并与 DSH 冷启动争用同一块磁盘。
+const VOLATILE_PATH = /(?:^|\/)(?:profiles|logs|cache|workspaces|user-data|plugin-data|sessions|storages|_qa_runtime_[^/]*)(?:\/|$)/i;
 
 const executableHashCache = new Map();
 
@@ -124,7 +129,7 @@ function isExistingDirectory(absolute) {
   try { return fs.statSync(absolute).isDirectory(); } catch { return false; }
 }
 
-function generateDirectoryManifest(programRoot) {
+function generateDirectoryManifest(programRoot, options = {}) {
   const root = path.resolve(programRoot);
   const state = scan(root);
   const executable = path.join(root, 'TaskHive.exe');
@@ -146,10 +151,19 @@ function generateDirectoryManifest(programRoot) {
   try {
     const executableStats = fs.statSync(executable);
     if (executableStats.isFile()) {
+      // T159：**复用上一次的哈希**。`TaskHive.exe` 实测 244 MB，重算一次要读满整份文件；
+      // 而刷新是每 11–122 秒发生一次（worker 每次都是新线程、模块级缓存是冷的），
+      // 于是空闲时每天产生 200–500 GB 读放大。这里按（大小 + mtime）判定身份：
+      // 调用方（主线程刷新路径）会把上一次清单里的 executable 身份传进来，命中即不读文件。
+      const seeded = options.executable;
+      const reusable = seeded && Number(seeded.length) === executableStats.size
+        && Number(seeded.mtimeMs) === executableStats.mtimeMs && typeof seeded.sha256 === 'string' && seeded.sha256;
+      const sha256 = reusable ? seeded.sha256 : cachedFileHash(executable);
       executableInfo = {
         relativePath: 'TaskHive.exe',
         length: executableStats.size,
-        sha256: cachedFileHash(executable),
+        mtimeMs: executableStats.mtimeMs,
+        sha256,
       };
     }
   } catch { executableInfo = null; }
@@ -177,8 +191,32 @@ function generateDirectoryManifest(programRoot) {
   const markdownPath = path.join(root, MARKDOWN_NAME);
   const jsonTemp = `${jsonPath}.${process.pid}.tmp`;
   const markdownTemp = `${markdownPath}.${process.pid}.tmp`;
-  fs.writeFileSync(jsonTemp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  fs.renameSync(jsonTemp, jsonPath);
+  // T159：清单每轮刷新都会重写，而这份 JSON 实测约 1.18 MB（美化缩进）。
+  // 两处优化：① 紧凑输出（人读的形态在 .md 里，JSON 是给机器读的）；
+  // ② **内容未变就跳过写盘** —— 避免"只为改一个 generatedAt 而重写 1 MB"。
+  const compactJson = `${JSON.stringify(manifest)}\n`;
+  // 比对时必须归一化三处**每轮都在变**的部分，否则"内容未变就跳过"永远不成立：
+  //   ① generatedAt（时间戳）；
+  //   ② 清单**自身**那两个条目的 bytes —— 本次写入会改变它们的大小（实测自引用 churn：
+  //      首轮 0.8 KB → 次轮 1.2 KB 就是它引起的）；
+  //   ③ totals.bytes（包含上面两个文件）。
+  const stableOf = (value) => {
+    const copy = JSON.parse(JSON.stringify(value));
+    delete copy.generatedAt;
+    if (copy.totals) delete copy.totals.bytes;
+    for (const component of copy.components || []) {
+      if (component.relativePath === JSON_NAME || component.relativePath === MARKDOWN_NAME) delete component.bytes;
+    }
+    return JSON.stringify(copy);
+  };
+  let previousStable = '';
+  try { previousStable = stableOf(JSON.parse(fs.readFileSync(jsonPath, 'utf8'))); } catch { /* 首次生成 */ }
+  if (previousStable !== stableOf(manifest)) {
+    fs.writeFileSync(jsonTemp, compactJson, 'utf8');
+    fs.renameSync(jsonTemp, jsonPath);
+  } else {
+    try { fs.rmSync(jsonTemp, { force: true }); } catch { /* 可能不存在 */ }
+  }
   const rows = components.map((component) => {
     const mb = (component.bytes / 1024 / 1024).toFixed(2);
     return `| \`${component.relativePath}\` | ${component.type} | ${component.fileCount} | ${component.linkCount} | ${mb} MB | ${component.purpose} |`;
@@ -222,12 +260,22 @@ function refreshDirectoryManifestAsync(programRoot) {
     try { return Promise.resolve(generateDirectoryManifest(programRoot)); } catch (error) { return Promise.reject(error); }
   }
   return new Promise((resolve, reject) => {
+    // T159：把上一次清单里的 exe 身份传给 worker，让它在（大小 + mtime）未变时**跳过 244 MB
+    // 的重新哈希**。worker 每次刷新都是新线程（模块级缓存在它里面必然是冷的），所以这层复用
+    // 必须由主线程读取上一次的清单来提供。
+    let seededExecutable = null;
+    try {
+      const previous = JSON.parse(fs.readFileSync(path.join(root, JSON_NAME), 'utf8'));
+      if (previous && previous.executable) seededExecutable = previous.executable;
+    } catch { /* 首次生成或清单损坏：退化为完整扫描 */ }
     let worker;
     try {
-      worker = new Worker(path.join(__dirname, 'directory-manifest-worker.js'), { workerData: { programRoot: path.resolve(programRoot) } });
+      worker = new Worker(path.join(__dirname, 'directory-manifest-worker.js'), {
+        workerData: { programRoot: path.resolve(programRoot), executable: seededExecutable },
+      });
     } catch (error) {
       // A worker that cannot even be constructed must not break the inventory.
-      try { resolve(generateDirectoryManifest(programRoot)); } catch { reject(error); }
+      try { resolve(generateDirectoryManifest(programRoot, { executable: seededExecutable })); } catch { reject(error); }
       return;
     }
     let settled = false;
@@ -252,9 +300,15 @@ function startDirectoryManifestWatcher(programRoot) {
   let closed = false;
   let running = false;
   let pending = false;
+  // T159：**最小刷新间隔**。实测空闲时重扫间隔只有 11–122 秒，而单次扫描要读 234 MiB +
+  // 3.17 s CPU；清单内容绝大多数时候与上一次完全相同（逐字节只差 generatedAt）。
+  // 60 秒冷却把"事件风暴"折成最多每分钟一次，配合写入端的"内容未变就不写盘"。
+  const MIN_INTERVAL_MS = 60000;
+  let lastRefreshAt = 0;
   const refresh = () => {
     if (closed) return;
     running = true;
+    lastRefreshAt = Date.now();
     void refreshDirectoryManifestAsync(root)
       .catch(() => { /* best-effort inventory must not block TaskHive */ })
       .finally(() => {
@@ -268,8 +322,10 @@ function startDirectoryManifestWatcher(programRoot) {
   function schedule(delay) {
     if (closed) return;
     if (running) { pending = true; return; }
+    const since = Date.now() - lastRefreshAt;
+    const wait = Math.max(delay, since < MIN_INTERVAL_MS ? MIN_INTERVAL_MS - since : 0);
     clearTimeout(timer);
-    timer = setTimeout(refresh, delay);
+    timer = setTimeout(refresh, wait);
   }
   schedule(2500);
   const watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
@@ -280,7 +336,9 @@ function startDirectoryManifestWatcher(programRoot) {
     // （例如 profiles 下的写入会上报 resources），单看事件路径无法判定来源。
     // 目录自身的 mtime 变化不携带清单信息：新增、删除、重命名由子条目的
     // rename 事件上报，文件写入由文件自身的 change 事件上报。
-    if (eventType === 'change' && isExistingDirectory(path.join(root, normalizedName))) return;
+    // T159：**rename 也必须按同样规则过滤** —— 只过滤 change 时，被 VOLATILE_PATH 排除的
+    // user-data/** 深层写入仍会经祖先目录的 rename 上报绕过过滤，触发整树重扫。
+    if ((eventType === 'change' || eventType === 'rename') && isExistingDirectory(path.join(root, normalizedName))) return;
     schedule(1500);
   });
   return {

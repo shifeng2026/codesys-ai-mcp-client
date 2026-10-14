@@ -3,6 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { createInterface } = require('readline');
+// T153：审计日志改走带轮转的实现。
+const { appendDiagnosticLog } = require('./diagnostic-log');
 const SAFE_KEYS = new Set(['Tab', 'Escape', 'Enter', 'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 
 class CodesysInputController {
@@ -146,8 +148,8 @@ class CodesysInputController {
   }
 
   audit(event, data) {
-    fs.mkdirSync(path.dirname(this.auditPath), { recursive: true });
-    fs.appendFileSync(this.auditPath, `${JSON.stringify({ event, ...data })}\n`, 'utf8');
+    // T153：走带轮转的实现，且不再每次 `mkdirSync`（本方法被每个鼠标/滚轮动作调用）。
+    appendDiagnosticLog(this.auditPath, `${JSON.stringify({ event, ...data })}\n`, { maxBytes: 4 * 1024 * 1024, backups: 1 });
   }
 }
 

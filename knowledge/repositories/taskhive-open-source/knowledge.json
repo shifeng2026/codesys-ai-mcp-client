@@ -1,0 +1,61 @@
+{
+  "id": "taskhive-open-source",
+  "name": "TaskHive 开源插件索引",
+  "version": "2026.10.02",
+  "description": "只读收集的 DeepSeek Harness / TaskHive 相关开源项目索引；每条记录保留来源、许可证、用途和审核边界。",
+  "license": "CC-BY-4.0",
+  "source": "GitHub Search API（只读）",
+  "collectedAt": "2026-10-02T00:00:00.000Z",
+  "entries": [
+    {
+      "id": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "url": "https://github.com/deepseek-ai/deepseek-harness",
+      "license": "MIT",
+      "category": "harness-core",
+      "taskhiveUse": "唯一 Agent 生命周期、会话、工具和插件宿主；TaskHive 不复制其编排层。",
+      "install": "reference-only",
+      "review": "上游核心，不由知识库自动安装或升级。"
+    },
+    {
+      "id": "awesome-dsh-plugin",
+      "name": "Awesome DSH Plugin",
+      "url": "https://github.com/awesome-dsh-plugin/awesome-dsh-plugin",
+      "license": "CC0-1.0",
+      "category": "plugin-catalog",
+      "taskhiveUse": "作为插件发现入口；进入 TaskHive 前必须通过 manifest、权限和渲染边界审核。",
+      "install": "reference-only",
+      "review": "精选目录，不等于插件安全或兼容性背书。"
+    },
+    {
+      "id": "dsh-mnemon",
+      "name": "dsh-mnemon",
+      "url": "https://github.com/omdsh-dev/dsh-mnemon",
+      "license": "MIT",
+      "category": "memory",
+      "taskhiveUse": "记忆控制平面参考；默认保持 TaskHive 的本地、有界、人工审核策略。",
+      "install": "reference-only",
+      "review": "网络 Provider 必须显式启用，不能把外部记忆当作可信事实。"
+    },
+    {
+      "id": "dsh-backup",
+      "name": "dsh-backup",
+      "url": "https://github.com/having5548/dsh-backup",
+      "license": "MIT",
+      "category": "storage",
+      "taskhiveUse": "备份策略参考；TaskHive 仍使用自己的会话删除、知识库和运行时所有权边界。",
+      "install": "reference-only",
+      "review": "小众项目，使用前需审查脚本的文件范围和恢复语义。"
+    },
+    {
+      "id": "dsh-hindsight",
+      "name": "dsh-hindsight",
+      "url": "https://github.com/Ryu6Zero/dsh-hindsight",
+      "license": "MIT",
+      "category": "memory",
+      "taskhiveUse": "跨会话记忆实现参考，不作为 TaskHive 默认 Provider。",
+      "install": "reference-only",
+      "review": "外部 Provider 与数据边界必须单独审核。"
+    }
+  ]
+}

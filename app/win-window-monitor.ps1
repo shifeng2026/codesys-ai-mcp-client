@@ -1,14 +1,35 @@
 param(
-  [ValidateSet('list', 'capture', 'fit')][string]$Mode = 'list',
-  [string]$WindowId,
-  [string]$OutputPath,
-  [int]$ExpectedPid,
-  [int]$CanvasWidth,
-  [int]$CanvasHeight,
-  [switch]$PreserveSize,
-  [switch]$HideTaskbar,
-  [switch]$AllowFixture
+  # User-requested deletion (2026-10): the "AI live monitoring" capability is gone, so
+  # this script now only ENUMERATES windows. The former capture mode (PrintWindow frame
+  # grab) and fit mode (rewriting the CODESYS window geometry to the plugin canvas
+  # ratio) are removed together with their OutputPath / ExpectedPid / CanvasWidth /
+  # CanvasHeight / PreserveSize / PreserveAspect / HideTaskbar parameters. Native window
+  # hosting is owned by win-window-host.ps1.
+  #
+  # NOTE: keep comments ASCII -- Windows PowerShell 5.1 reads this file as ANSI when it
+  # has no BOM, and non-ASCII bytes break parsing around this block.
+  [ValidateSet('list')][string]$Mode = 'list',
+  # T194: hidden-window scan for the native host's self-heal.
+  #
+  # The enumeration below is deliberately visibility-filtered -- that is exactly what
+  # the surface dropdown wants -- but it also means a window the native host hid with
+  # SW_HIDE can never be seen again by ANY caller in this build: not by the dropdown,
+  # not by project detection, not by the startup cleanup (which then answers "no
+  # window", keeps the instance and leaves it unreachable). With -IncludeHidden the
+  # enumeration ALSO returns windows whose WS_VISIBLE style bit is clear, but only for
+  # the PIDs named in -PluginPids, i.e. the instances this plugin launched. No other
+  # window on the desktop is enumerated even then, and this script still never mutates
+  # anything: it reports, and the caller decides.
+  [switch]$IncludeHidden,
+  [string]$PluginPids = ''
 )
+
+# T137: Windows PowerShell 5.1 writes stdout in the console code page (GBK / 936 on
+# this machine), so a Chinese window title reached Node as mojibake
+# (observed: the CODESYS "profile chooser" dialog title rendered as garbage in the
+# surface dropdown). Emit UTF-8 so the caller's UTF-8 decode is correct.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 Add-Type @'
 using System;
@@ -20,36 +41,71 @@ public static class TaskHiveWin {
   [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  // T194: the WS_VISIBLE style bit. IsWindowVisible is the EFFECTIVE answer and also
+  // goes false while a window's owner is minimized (measured, see the T188 note in
+  // win-window-host.ps1), so it cannot tell "hidden with SW_HIDE" from "hidden because
+  // the shell is minimized". Only the style bit can, and that distinction is what the
+  // self-heal decides on.
+  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] public static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int index);
+  [DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong32(IntPtr hWnd, int index);
+  public static IntPtr GetLong(IntPtr hWnd, int index) { return IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, index) : new IntPtr(GetWindowLong32(hWnd, index)); }
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextLength(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
-  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW", SetLastError=true)] public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
-  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW", SetLastError=true)] public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
-  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
-  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
-  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
-  public static long GetLong(IntPtr hWnd, int index) { return GetWindowLongPtr(hWnd, index).ToInt64(); }
-  public static long SetLong(IntPtr hWnd, int index, long value) { return SetWindowLongPtr(hWnd, index, new IntPtr(value)).ToInt64(); }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-  [StructLayout(LayoutKind.Sequential)] public struct MONITORINFO { public int Size; public RECT Monitor; public RECT Work; public uint Flags; }
+  // T187: DPI awareness -- same reasoning and same measurement as win-window-host.ps1.
+  // Without it this process is DPI-UNAWARE and GetWindowRect answers in a virtualised 96-DPI
+  // space: on this machine a 2560x1600 desktop at 150% is reported as 1707x1067, so every
+  // rectangle comes back divided by 1.5. Those rectangles are not decoration -- the native
+  // host stores them as the restore geometry it writes back when a window is released, so
+  // the two scripts have to agree on one unit. Per-monitor-v2 pins that unit to physical
+  // pixels, which is what the caller (screen.dipToScreenRect) already speaks.
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr context);
 }
 '@
 
+# T187: must run before the first rectangle is read. The call is refused only when the process
+# awareness is already fixed by a manifest, which is not the case for powershell.exe 5.1 on
+# this machine (measured: awareness 0 = unaware by default, and this call then succeeds). The
+# shape of the list output is deliberately unchanged -- only the unit is pinned.
+try { [void][TaskHiveWin]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) } catch { }
+
 if ($Mode -eq 'list') {
+  $WS_VISIBLE = 0x10000000L
+  $GWL_STYLE = -16
+  # T194: an allow-list is mandatory for the hidden scan. "Every hidden top-level
+  # window on this desktop" is precisely the population the caller must never touch,
+  # so an empty -PluginPids means the scan enumerates NOTHING and says so by
+  # returning no items (the caller treats empty output as "no candidates").
+  $hiddenPids = New-Object System.Collections.Generic.List[int]
+  if ($IncludeHidden) {
+    foreach ($part in ($PluginPids -split ',')) {
+      $parsedPid = 0
+      if ([int]::TryParse($part.Trim(), [ref]$parsedPid) -and $parsedPid -gt 0) { $hiddenPids.Add($parsedPid) }
+    }
+    if ($hiddenPids.Count -eq 0) { exit 0 }
+  }
   $items = New-Object System.Collections.Generic.List[object]
   [TaskHiveWin]::EnumWindows({ param($handle, $unused)
-    if (-not [TaskHiveWin]::IsWindowVisible($handle)) { return $true }
+    $processId = 0
+    [void][TaskHiveWin]::GetWindowThreadProcessId($handle, [ref]$processId)
+    if ($IncludeHidden) {
+      # T194: scan mode is STRICTLY confined to the named PIDs. Enumerating everything
+      # else and then filtering in the caller was measured to leak: a VISIBLE window of
+      # an unrelated PID passed the old "not in scope and not visible" test and ended up
+      # in the revive scan's input (found by tests/codesys-native-host-revive-contract.js
+      # -- 3 foreign windows in one result). A hidden-window scan must never widen the
+      # population it looks at, so the allow-list is the only admission.
+      if (-not $hiddenPids.Contains([int]$processId)) { return $true }
+    } elseif (-not [TaskHiveWin]::IsWindowVisible($handle)) {
+      return $true
+    }
     $len = [TaskHiveWin]::GetWindowTextLength($handle)
     if ($len -le 0) { return $true }
     $titleBuffer = New-Object System.Text.StringBuilder ($len + 1)
     [void][TaskHiveWin]::GetWindowText($handle, $titleBuffer, $titleBuffer.Capacity)
     $title = $titleBuffer.ToString()
-    $processId = 0
-    [void][TaskHiveWin]::GetWindowThreadProcessId($handle, [ref]$processId)
     try { $process = Get-Process -Id $processId -ErrorAction Stop; $processName = $process.ProcessName } catch { $processName = '' }
     $taskHiveFixture = $env:TASKHIVE_CODESYS_TEST_FIXTURE -eq '1' -and $title -match '^CODESYS TaskHive Media Fixture(?: [AB])?$'
     if ($processName -match '(?i)^codesys' -or $taskHiveFixture) {
@@ -58,10 +114,13 @@ if ($Mode -eq 'list') {
         $width = $rect.Right - $rect.Left
         $height = $rect.Bottom - $rect.Top
         $minimized = [TaskHiveWin]::IsIconic($handle)
+        $visible = [TaskHiveWin]::IsWindowVisible($handle)
+        $style = [TaskHiveWin]::GetLong($handle, $GWL_STYLE).ToInt64()
         $usable = (-not $minimized) -and $width -ge 320 -and $height -ge 200
         $items.Add([pscustomobject]@{
           id = ('0x{0:X}' -f $handle.ToInt64()); title = $title; processName = $processName; pid = $processId;
           left = $rect.Left; top = $rect.Top; width = $width; height = $height; minimized = $minimized; usable = $usable;
+          visible = $visible; styleVisible = (($style -band $WS_VISIBLE) -ne 0); style = $style;
           reason = if ($usable) { $null } elseif ($minimized) { 'window-minimized' } else { 'window-frame-too-small' };
           fixture = $taskHiveFixture
         })
@@ -73,108 +132,4 @@ if ($Mode -eq 'list') {
   exit 0
 }
 
-if (-not $WindowId) { throw "$Mode requires WindowId" }
-$value = $WindowId.Trim()
-if ($value -match '^0x') { $handle = [IntPtr]::new([Convert]::ToInt64($value.Substring(2), 16)) }
-else { $handle = [IntPtr]::new([Convert]::ToInt64($value)) }
-
-if ($Mode -eq 'fit') {
-  if (-not [TaskHiveWin]::IsWindow($handle)) { throw 'CODESYS window handle is invalid' }
-  $actualPid = 0
-  [void][TaskHiveWin]::GetWindowThreadProcessId($handle, [ref]$actualPid)
-  if ($ExpectedPid -le 0 -or $actualPid -ne $ExpectedPid) { throw 'CODESYS window PID identity changed' }
-  try { $targetProcess = Get-Process -Id $actualPid -ErrorAction Stop } catch { throw 'CODESYS window process is unavailable' }
-  if ($targetProcess.ProcessName -notmatch '(?i)^codesys' -and -not $AllowFixture) { throw 'window fit only accepts verified CODESYS processes' }
-  if ($CanvasWidth -lt 320 -or $CanvasHeight -lt 200) { throw 'plugin canvas is too small for CODESYS window fit' }
-  $monitor = [TaskHiveWin]::MonitorFromWindow($handle, 2)
-  $monitorInfo = New-Object TaskHiveWin+MONITORINFO
-  $monitorInfo.Size = [Runtime.InteropServices.Marshal]::SizeOf($monitorInfo)
-  if (-not [TaskHiveWin]::GetMonitorInfo($monitor, [ref]$monitorInfo)) { throw 'cannot resolve CODESYS monitor work area' }
-  $workWidth = [Math]::Max(320, $monitorInfo.Work.Right - $monitorInfo.Work.Left)
-  $workHeight = [Math]::Max(200, $monitorInfo.Work.Bottom - $monitorInfo.Work.Top)
-  $canvasRatio = [double]$CanvasWidth / [double]$CanvasHeight
-  if ($PreserveSize) {
-    $launchRect = New-Object TaskHiveWin+RECT
-    if (-not [TaskHiveWin]::GetWindowRect($handle, [ref]$launchRect)) { throw 'cannot resolve CODESYS launch window bounds' }
-    $targetWidth = [Math]::Min($workWidth, [Math]::Max(320, $launchRect.Right - $launchRect.Left))
-    $targetHeight = [Math]::Min($workHeight, [Math]::Max(200, $launchRect.Bottom - $launchRect.Top))
-  } else {
-    $targetWidth = $workWidth
-    $targetHeight = [Math]::Max(200, [int][Math]::Round($targetWidth / $canvasRatio))
-    if ($targetHeight -gt $workHeight) {
-      $targetHeight = $workHeight
-      $targetWidth = [Math]::Max(320, [int][Math]::Round($targetHeight * $canvasRatio))
-    }
-  }
-  $left = $monitorInfo.Work.Left + [int][Math]::Floor(($workWidth - $targetWidth) / 2)
-  $top = $monitorInfo.Work.Top + [int][Math]::Floor(($workHeight - $targetHeight) / 2)
-  # SW_RESTORE is only needed to leave a prior maximized/minimized placement.
-  # SetWindowPos uses NOACTIVATE so later canvas resize never steals focus.
-  [void][TaskHiveWin]::ShowWindowAsync($handle, 9)
-  if (-not [TaskHiveWin]::SetWindowPos($handle, [IntPtr]::Zero, $left, $top, $targetWidth, $targetHeight, 0x0054)) { throw 'failed to fit CODESYS window to plugin canvas' }
-  $taskbarHidden = $false
-  if ($HideTaskbar -and -not $AllowFixture) {
-    # Keep the real CODESYS window top-level and manually operable, while
-    # removing only the taskbar/Alt-Tab app classification. Never re-parent it.
-    $GWL_EXSTYLE = -20
-    $WS_EX_TOOLWINDOW = 0x00000080L
-    $WS_EX_APPWINDOW = 0x00040000L
-    $oldExStyle = [TaskHiveWin]::GetLong($handle, $GWL_EXSTYLE)
-    $newExStyle = ($oldExStyle -bor $WS_EX_TOOLWINDOW) -band (-bnot $WS_EX_APPWINDOW)
-    [void][TaskHiveWin]::SetLong($handle, $GWL_EXSTYLE, $newExStyle)
-    [void][TaskHiveWin]::SetWindowPos($handle, [IntPtr]::Zero, 0, 0, 0, 0, 0x0037)
-    $taskbarHidden = $true
-  }
-  $actualRect = New-Object TaskHiveWin+RECT
-  if (-not [TaskHiveWin]::GetWindowRect($handle, [ref]$actualRect)) { throw 'cannot verify fitted CODESYS window bounds' }
-  $actualWidth = $actualRect.Right - $actualRect.Left
-  $actualHeight = $actualRect.Bottom - $actualRect.Top
-  [pscustomobject]@{
-    windowId = ('0x{0:X}' -f $handle.ToInt64()); pid = $actualPid; fitted = $true;
-    fitMode = if ($PreserveSize) { 'center-launch-window' } else { 'window-to-plugin-canvas' }; taskbarHidden = $taskbarHidden;
-    canvasWidth = $CanvasWidth; canvasHeight = $CanvasHeight; canvasRatio = $canvasRatio;
-    left = $actualRect.Left; top = $actualRect.Top; width = $actualWidth; height = $actualHeight;
-    windowRatio = [double]$actualWidth / [Math]::Max(1, $actualHeight);
-    workArea = [pscustomobject]@{ left = $monitorInfo.Work.Left; top = $monitorInfo.Work.Top; width = $workWidth; height = $workHeight }
-  } | ConvertTo-Json -Compress
-  exit 0
-}
-
-if (-not $OutputPath) { throw 'capture requires OutputPath' }
-# Captured frames are handed to the AI as "the CODESYS screen", so the HWND must be
-# re-validated exactly like fit: Windows recycles HWND values once a window is
-# destroyed, and a stale handle can silently belong to an unrelated process.
-$handleText = '0x{0:X}' -f $handle.ToInt64()
-if (-not [TaskHiveWin]::IsWindow($handle)) { throw ('CODESYS capture window handle is invalid: {0}' -f $handleText) }
-$actualPid = 0
-[void][TaskHiveWin]::GetWindowThreadProcessId($handle, [ref]$actualPid)
-if ($ExpectedPid -le 0 -or $actualPid -ne $ExpectedPid) {
-  throw ('CODESYS capture window PID identity changed: expected pid {0} for window {1} but the window belongs to pid {2}' -f $ExpectedPid, $handleText, $actualPid)
-}
-try { $targetProcess = Get-Process -Id $actualPid -ErrorAction Stop } catch { throw 'CODESYS window process is unavailable' }
-if ($targetProcess.ProcessName -notmatch '(?i)^codesys' -and -not $AllowFixture) { throw 'window capture only accepts verified CODESYS processes' }
-$rect = New-Object TaskHiveWin+RECT
-if (-not [TaskHiveWin]::GetWindowRect($handle, [ref]$rect)) { throw '无法获取窗口边界' }
-$width = [Math]::Max(1, $rect.Right - $rect.Left)
-$height = [Math]::Max(1, $rect.Bottom - $rect.Top)
-if ([TaskHiveWin]::IsIconic($handle) -or $width -lt 320 -or $height -lt 200) { throw ('CODESYS window cannot provide a complete frame: {0}x{1}' -f [int]$width, [int]$height) }
-Add-Type -AssemblyName System.Drawing
-$bitmap = New-Object System.Drawing.Bitmap($width, $height)
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$hdc = $graphics.GetHdc()
-$ok = [TaskHiveWin]::PrintWindow($handle, $hdc, 2)
-$graphics.ReleaseHdc($hdc)
-if (-not $ok) {
-  # No screen-region fallback: copying whatever desktop pixels currently sit at
-  # these coordinates must never be reported to the AI as the CODESYS screen. A
-  # failed PrintWindow is a real, reportable capture failure.
-  $graphics.Dispose()
-  $bitmap.Dispose()
-  throw 'CODESYS window capture failed: PrintWindow could not render the window'
-}
-$graphics.Dispose()
-$directory = Split-Path -Parent $OutputPath
-New-Item -ItemType Directory -Force -Path $directory | Out-Null
-$bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
-$bitmap.Dispose()
-Write-Output ($OutputPath | ConvertTo-Json -Compress)
+exit 0

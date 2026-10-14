@@ -1,10 +1,6 @@
 'use strict'
 
-// 插件身份契约：CODESYS 工作台这个名字和它的图标，必须在**所有**显示插件身份的地方
-// 同时存在。用户口径：「把插件名字改成 codesys 工作台，并且加入图标」。
-//
-// 这一条容易只改一半：侧栏按钮的名字取自插件 id（codesys-monitor），而顶栏标题取自
-// surface id（codesys）—— 只改一处就会出现「侧栏叫 CODESYS 工作台、顶栏还写着 codesys」。
+// Native CODESYS surface and the rightbar code workbench have distinct identities.
 
 const assert = require('node:assert')
 const fs = require('node:fs')
@@ -13,7 +9,7 @@ const path = require('node:path')
 const appRoot = path.resolve(__dirname, '..')
 const read = (relative) => fs.readFileSync(path.resolve(appRoot, relative), 'utf8')
 
-const EXPECTED_NAME = 'CODESYS 工作台'
+const EXPECTED_NAME = 'CODESYS'
 const catalog = JSON.parse(read('plugins/catalog.json'))
 const manifest = JSON.parse(read('plugins/installed/codesys-monitor/plugin.json'))
 const renderer = read('app/renderer/renderer.js')
@@ -69,16 +65,16 @@ assert(
 // 「侧栏叫 CODESYS 工作台、首启动标签还叫 CODESYS」。
 const client = read('plugins/installed/taskhive-surfaces/dsh/client.js')
 assert(
-  client.includes("{ id: 'codesys', pluginId: 'codesys-monitor', title: 'CODESYS 工作台'"),
+  client.includes("{ id: 'codesys', pluginId: 'codesys-monitor', title: 'CODESYS'"),
   'the fallback surface descriptor (used when the host query is stripped) must use the new name',
 )
 assert(
-  !/title: 'CODESYS'/.test(client),
-  'no surface label may still say plain "CODESYS"',
+  client.includes("title: () => 'CODESYS 工作台'"),
+  'the rightbar code workbench must keep its separate name',
 )
 assert(
-  client.includes("title: 'CODESYS 工作台', order: 8"),
-  'the workbench tab title must match the plugin name instead of "专用工作台"',
+  client.includes("const workbenchKind = 'taskhive:codesys-workbench'") && client.includes('ctx.sidebarRightTabs.register({'),
+  'the code workbench must register in the native rightbar',
 )
 
 console.log('plugin identity contract tests passed')

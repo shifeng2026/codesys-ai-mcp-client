@@ -17,6 +17,7 @@
 const assert = require('node:assert')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { probeSource } = require('./lib/probe-source')
 
 const source = readFileSync(join(__dirname, '..', 'plugins', 'installed', 'taskhive-surfaces', 'dsh', 'client.js'), 'utf8')
 
@@ -102,15 +103,18 @@ assert(source.includes("if (mutation.type === 'characterData')"))
 
 // --- 4. observer callback signatures (the `force` parameter bug) ----------
 assert(!source.includes('new MutationObserver(publish)'), 'passing `publish` directly makes the mutation array the `force` argument')
-assert(source.includes('new MutationObserver(() => publish())'), 'geometry observer must wrap publish')
+// The bridge no longer observes the whole document: it observes the geometry-relevant
+// nodes (and their ancestor chain) through a callback that takes the records, so the
+// invariant is that the observer is wrapped — not that it has one specific spelling.
+assert(/new MutationObserver\(\([A-Za-z_$][\w$]*\)\s*=>/.test(source), 'geometry observer must wrap publish in a records-taking callback')
 assert(!source.includes('new ResizeObserver(publish)'), 'passing `publish` directly makes the entry list the `force` argument')
-assert(source.includes('new ResizeObserver(() => publish())'), 'resize observer must wrap publish')
+assert(/new ResizeObserver\(\(\)\s*=>/.test(source), 'resize observer must wrap publish')
 assert(source.includes('if (!force && stableFrames < 2) return'), 'the two-frame stabilisation guard must be intact')
 
 // --- 5. one bilingual source of truth for the right rail ------------------
 assert(source.includes('const RIGHT_SIDEBAR_COLLAPSED = /展开(?:右侧)?侧边栏|expand\\s+(?:right\\s+)?sidebar/i'), 'collapse detection must be bilingual and shared')
 assert(!source.includes('const rightSidebarCollapsed = /展开(?:右侧)?侧边栏/.test(rightToggleLabel)'), 'the Chinese-only duplicate regex must be gone')
-assert.equal(source.match(/RIGHT_SIDEBAR_COLLAPSED\.test\(/g)?.length, 2, 'both collapse checks must use the shared constant')
+assert.equal(source.match(/RIGHT_SIDEBAR_COLLAPSED\.test\(/g)?.length, 1, 'the collapse check must use the shared constant (T142 起几何桥以"右栏盒子"为唯一权威，只剩这一处)')
 
 // --- 6. the skin observer is actually released ----------------------------
 assert(source.includes('window.__TASKHIVE_SKIN_DISPOSE__?.()'), 'the skin disposer must be called from the plugin effect teardown')
@@ -164,8 +168,7 @@ assert(/button: \{ height: '30px'[^}]*background: 'var\(--th-brand-tint\)'/.test
 // T034's probe asserted "zero TaskHive overlay nodes", which is now exactly
 // backwards: the restored theme is supposed to inject a TaskHive brand. Keep
 // the probe aligned with the theme so it cannot silently re-invert.
-const mainSource = readFileSync(join(__dirname, '..', 'app', 'main.js'), 'utf8')
-const brandingProbe = mainSource.slice(mainSource.indexOf('async function probeTaskHiveBranding'), mainSource.indexOf('async function probeNativeSettings'))
+const brandingProbe = probeSource.slice(probeSource.indexOf('async function probeTaskHiveBranding'), probeSource.indexOf('async function probeNativeSettings'))
 assert(brandingProbe.includes("theme: 'taskhive-1.0.2'"), 'the branding probe must record which theme it validated')
 assert(brandingProbe.includes('brandButtonTaskHiveIcon'), 'the probe must check the TaskHive sidebar brand icon')
 assert(brandingProbe.includes('composerBrandTaskHiveIcon'), 'the probe must check the TaskHive composer brand icon')

@@ -8,7 +8,7 @@
 // compact at 91 200 tokens — long before the model was actually full — and doubled
 // the reported context pressure (a 38 833-token turn read as 34% instead of 14%).
 const fs = require('node:fs')
-const os = require('node:os')
+const { createTempDir } = require('./lib/temp-dir')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
@@ -16,7 +16,7 @@ const PLUGIN = path.join(__dirname, '..', 'plugins', 'installed', 'taskhive-code
 const SHIPPED_CATALOG = path.join(__dirname, '..', 'profiles', 'model-catalog.json')
 
 async function main() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'taskhive-window-'))
+  const root = createTempDir('taskhive-window-')
   fs.mkdirSync(path.join(root, 'profiles'), { recursive: true })
   fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
   const catalogPath = path.join(root, 'profiles', 'model-catalog.json')

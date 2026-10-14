@@ -17,6 +17,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readJson, writeJson } = require('./atomic-json');
 
 const PID_REUSE_TOLERANCE_MS = 15 * 60 * 1000;
 const UNSAVED_MARKER = /\*\s*[-–—]\s*CODESYS/i;
@@ -47,21 +48,22 @@ class CodesysLaunchedRegistry {
     this.maxEntries = Math.max(4, Number(options.maxEntries) || 32);
   }
 
+  // A damaged registry used to be read as "exited cleanly, nothing was launched",
+  // which is the one answer that makes the next startup skip closing the CODESYS
+  // instances this app had opened. Recovering the last good generation keeps that
+  // list intact instead of silently forgetting it.
   read() {
-    try {
-      const value = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (!value || typeof value !== 'object') return { cleanExit: true, launched: [] };
-      return { cleanExit: value.cleanExit !== false, launched: Array.isArray(value.launched) ? value.launched : [] };
-    } catch { return { cleanExit: true, launched: [] }; }
+    const value = readJson(this.file, null, { label: 'CODESYS 启动登记 logs/codesys-launched.json' });
+    if (!value || typeof value !== 'object') return { cleanExit: true, launched: [] };
+    return { cleanExit: value.cleanExit !== false, launched: Array.isArray(value.launched) ? value.launched : [] };
   }
 
   write(state) {
     try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      fs.writeFileSync(this.file, JSON.stringify({
+      writeJson(this.file, {
         cleanExit: state.cleanExit === true,
         launched: (state.launched || []).slice(-this.maxEntries),
-      }, null, 2), 'utf8');
+      });
       return true;
     } catch { return false; }
   }

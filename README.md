@@ -1,10 +1,10 @@
-# CODESYS AI MCP Client (TaskHive 1.0.3)
+# CODESYS AI MCP Client (TaskHive 1.1.0)
 
 TaskHive 桌面客户端的**应用层源码 + 全部配置文件夹**。
 
 TaskHive 是一个 Electron 桌面客户端，通过 Harness 运行时把大模型接到本机 **CODESYS** 工程站：
 内置 `codesys-monitor` 插件调用 CODESYS ScriptEngine 完成工程打开、导出、导入、编译、
-在线会话与项目树读取；同时提供 Codex / MCP、终端、专家库、知识库、插件管理等能力。
+在线会话与项目树读取；同时提供 Codex / MCP、终端、知识库、插件管理等能力。
 
 ---
 
@@ -17,7 +17,6 @@ TaskHive 是一个 Electron 桌面客户端，通过 Harness 运行时把大模�
 | `app/` | Electron 主进程与渲染层源码（`main.js`、`renderer.js`、`preload.js`、全部 `codesys-*.js`） |
 | `plugins/` | 插件目录：`catalog.json`、`manager.js`、`codesys/`、`installed/`（含 `codesys-monitor`） |
 | `profiles/` | **配置文件夹（见第二节）** |
-| `experts/` | 专家库：`experts.json`、`catalog.json`、`config-store.js`、已安装专家 |
 | `knowledge/` | 知识库：`cards.json`、CODESYS 安全规则等 |
 | `repositories/` | 仓库管理：`manager.js`、`distill/` 源码 |
 | `harness/` | Harness 运行时描述：`core.js`、`runtime/slot/`（闭包清单、SBOM、锁文件） |
@@ -52,12 +51,6 @@ profiles/
    ├─ taskhive.patch.yml     # 主配置：模型路由、插件启用与参数
    └─ profiles/web/          # Web 侧配置（cordis.yml、pnpm 锁文件等）
 
-experts/
-├─ experts.json              # 专家清单
-├─ catalog.json
-├─ config-store.js
-└─ installed/taskhive-plc-experts/
-
 plugins/
 ├─ catalog.json              # 插件目录
 └─ codesys/offline-jobs.json # CODESYS 离线作业配置
@@ -67,8 +60,8 @@ knowledge/
 └─ repositories/taskhive-core/codesys-safety.md
 ```
 
-> ⚠️ **`profiles/api-credentials.json` 已入库且当前为空（`{}`）。**
-> 请勿把真实 API Key 提交进本仓库；填写密钥后请把该文件加入 `.gitignore`。
+> ⚠️ **`profiles/api-credentials.json` 当前为空（`{}`），且已不再被 Git 跟踪。**
+> 该文件已写入 `.gitignore` 并从 Git 索引中移除（工作区文件保留）。请勿把真实 API Key 提交进本仓库。
 
 ---
 
@@ -82,18 +75,22 @@ knowledge/
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| `TaskHive-1.0.3-win-x64.zip` | 762 MB | 解压后双击 `TaskHive.exe` 即可使用，无需安装 Node.js |
+| `TaskHive-1.1.0-win-x64.zip` | 762 MB | 解压后双击 `TaskHive.exe` 即可使用，无需安装 Node.js |
+
+> ⚠️ **下载链接当前尚不可用：`v1.1.0` 的发布资源还未上传。**
+> 上表中的 `TaskHive-1.1.0-win-x64.zip` 与下方直链均指向 `v1.1.0` Release；
+> 在该 Release 及其同名资源发布之前，这些链接会返回 404。
 
 直链：
 
 ```text
-https://github.com/shifeng2026/codesys-ai-mcp-client/releases/download/v1.0.3/TaskHive-1.0.3-win-x64.zip
+https://github.com/shifeng2026/codesys-ai-mcp-client/releases/download/v1.1.0/TaskHive-1.1.0-win-x64.zip
 ```
 
 解压后目录结构：
 
 ```text
-TaskHive-1.0.3\
+TaskHive-1.1.0\
   TaskHive.exe        程序入口，双击启动
   使用说明.txt
   resources\app\      程序本体与全部配置文件夹
@@ -101,7 +98,7 @@ TaskHive-1.0.3\
 ```
 
 > 压缩包内含 27 万个文件，Windows 资源管理器解压较慢，建议用
-> 7-Zip 或 `tar -xf TaskHive-1.0.3-win-x64.zip`。
+> 7-Zip 或 `tar -xf TaskHive-1.1.0-win-x64.zip`。
 
 ### 方式 2：从源码构建（开发者）
 

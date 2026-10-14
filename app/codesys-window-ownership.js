@@ -162,6 +162,55 @@ class CodesysWindowOwnership {
     return Boolean(registration?.windowIds.has(normalizedWindowId(item.id)));
   }
 
+  // T199：窗口句柄不是稳定的身份，**启动它的 PID 才是**。
+  //
+  // 现场（2026-10-08）：CODESYS 是从面板启动的（`registerPid` 已登记），但它在启动过程中销毁并
+  // 重建了自己的顶层窗口 —— 审计逐字可查 `native-host-window-lost reason=hwnd-destroyed
+  // replacementId=0x1304AC` + `native-host-window-replaced`（0x1204AC → 0x1304AC，启动后 71 s，
+  // 与 10-04/10-05 每一次会话同一形态）。面板的下拉框只在刷新时才重新枚举，于是它手里那个
+  // 旧句柄成了"最后一次见过的窗口"，而 `resolveWindow` 只按句柄精确匹配 → 拒绝。
+  //
+  // 判据与 T194 的 `codesysReviveOwnedPids`（main.js）**同一份**：本次运行登记过的 PID，加上
+  // 上一次运行写进 `logs/codesys-launched.json`、还没走完清理的 PID。用户自己开的 CODESYS
+  // 永远不在这两个集合里，所以外部窗口依旧绑不上 —— 安全意图不放大。
+  ownsPid(value, extraPids = []) {
+    const pid = normalizedPid(value);
+    if (!pid) return false;
+    if (this.launchedPids.has(pid)) return true;
+    return (Array.isArray(extraPids) ? extraPids : []).some((item) => normalizedPid(item) === pid);
+  }
+
+  // 这个窗口属于哪个"本插件启动的 PID"？问这个问题时记住的句柄往往**已经不存在**了，所以先
+  // 从登记里**记得的**句柄（含已退役的）回查 PID；回查不到才用调用方随请求带来的 PID，且那
+  // 个 PID 必须自己就属于本插件（登记过 / 上一轮记录过）。任意外部 PID 在这里永远答不出来。
+  ownedPidForWindow(windowId, requestedPid = 0, extraPids = []) {
+    const id = normalizedWindowId(windowId);
+    if (id) {
+      for (const registration of this.launchedPids.values()) {
+        if (registration.windowIds.has(id) || registration.retiredWindowIds.has(id)) return registration.pid;
+      }
+    }
+    const pid = normalizedPid(requestedPid);
+    if (!pid) return 0;
+    if (this.launchedPids.has(pid)) return pid;
+    return (Array.isArray(extraPids) ? extraPids : []).some((item) => normalizedPid(item) === pid) ? pid : 0;
+  }
+
+  // 选出该 PID **现在**的顶层窗口（句柄换了就用新的那个）。与 `primaryWindow` 同一条选择规则，
+  // 唯一的差别是不经过 `ownsWindow` 过滤：上一轮运行记录下来的 PID 这一轮没有登记可查，而
+  // "它是不是本插件的进程"已经由 `ownedPidForWindow` 判过，这里只负责挑窗口。
+  windowForOwnedPid(items, pid, preferredWindowId = '') {
+    const expected = normalizedPid(pid);
+    if (!expected) return null;
+    const candidates = (Array.isArray(items) ? items : [])
+      .filter((item) => normalizedPid(item?.pid) === expected && item?.usable !== false);
+    if (!candidates.length) return null;
+    const current = candidates.find((item) => normalizedWindowId(item.id) === normalizedWindowId(preferredWindowId)) || null;
+    const largest = [...candidates].sort((left, right) => windowArea(right) - windowArea(left))[0];
+    if (!current) return largest;
+    return windowArea(largest) > windowArea(current) * 1.15 ? largest : current;
+  }
+
   decorate(item) {
     const registration = this.launchedPids.get(normalizedPid(item?.pid));
     const windowPhase = item?.fixture === true ? 'main' : registration?.windowPhases.get(normalizedWindowId(item?.id)) || 'main';

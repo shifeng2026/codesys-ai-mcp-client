@@ -12,7 +12,6 @@ const ROOT_ANCHORS = [
   '/node_modules/',
   '/plugins/',
   '/profiles/',
-  '/experts/',
   '/knowledge/',
   '/repositories/',
   '/models/',

@@ -46,12 +46,16 @@ button.secondary { border-color: #cfcfcf; color: #222; border-radius: 6px; }
 .codesys-toolbar button.primary { border: 1px solid #d5e0fb; background: #edf3ff; color: #315fbd; }
 .codesys-toolbar button:focus-visible { outline: 2px solid #6f8fe8; outline-offset: 2px; }
 .codesys-toolbar button:disabled { opacity: .42; cursor: not-allowed; }
-.codesys-head-row > .codesys-monitor-strip { flex: 0 1 220px; min-width: 0; max-width: 260px; height: 28px; min-height: 28px; max-height: 28px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 9px; border: 1px solid #d8d8d8; border-radius: 6px; background: #f7f8fa; color: #344054; font-size: clamp(9px, 1vw, 11px); line-height: 1.35; }
 .codesys-head-row > .codesys-status-strip { flex: 1 1 260px; min-width: 0; height: 28px; display: flex; align-items: center; gap: 0; overflow: hidden; border: 1px solid #dedede; border-radius: 6px; background: #fff; color: #555; font-size: 10px; }
 .codesys-status-strip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 9px; border-right: 1px solid #e7e7e7; }
-.codesys-status-strip > span:first-child { flex: 1 1 34%; }
-.codesys-status-strip > span:nth-child(2) { flex: 1 1 28%; }
-.codesys-status-strip > span:last-child { flex: 1 1 38%; border-right: 0; }
+/* 用户的删除要求（2026-10）：「AI 实时监视」与 ModLens 删除后状态条只剩两个单元 ——
+   `#input-status`（原生托管/启动状态）与 ScriptEngine 单元，原先按三个单元排的百分比
+   在这里重新分配，否则第一格会只剩 34% 宽而把 ScriptEngine 挤到换行。 */
+.codesys-status-strip > span:first-child { flex: 1 1 58%; }
+.codesys-status-strip > span:last-child { flex: 1 1 42%; border-right: 0; }
+/* T177：`#input-status` 平时不写字（用户要求「对话界面不要那么多文字提示」），空着时把整格收起来 ——
+   否则状态条左侧会留一个空白的白格子 + 一条悬空的分隔线；此时 ScriptEngine 单元 `flex-grow:1` 自己撑满整条。 */
+.codesys-status-strip > #input-status:empty { display: none; }
 .codesys-status-strip > .codesys-scriptengine-cell { display: flex; align-items: center; gap: 4px; }
 .codesys-scriptengine-cell #scriptengine-status { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .codesys-status-action { flex: 0 0 auto; height: 22px; margin: 0 2px; padding: 0 7px; border: 1px solid #d9dee8; border-radius: 5px; background: #f7f8fa; color: #344054; font: 500 10px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; vertical-align: middle; cursor: pointer; box-shadow: none; }
@@ -61,9 +65,7 @@ button.secondary { border-color: #cfcfcf; color: #222; border-radius: 6px; }
 @media (max-width: 1120px) {
   .codesys-toolbar { flex-basis: 510px; min-width: 410px; gap: 4px; }
   .codesys-toolbar select { flex-basis: 120px; min-width: 82px; }
-  .codesys-head-row > .codesys-monitor-strip { flex-basis: 150px; max-width: 180px; }
   .codesys-head-row > .codesys-status-strip { flex: 0 1 150px; }
-  .codesys-status-strip > #vision-status,
   .codesys-status-strip > #input-status { display: none; }
   .codesys-status-strip > .codesys-scriptengine-cell { flex: 1 1 100%; border-right: 0; }
 }
@@ -71,24 +73,419 @@ button.secondary { border-color: #cfcfcf; color: #222; border-radius: 6px; }
   .codesys-toolbar { min-width: 0; flex: 1 1 auto; }
   .codesys-toolbar .codesys-icon-button.has-text span { display: none; }
   .codesys-toolbar .codesys-icon-button.has-text { width: 28px; padding: 0; justify-content: center; }
-  .codesys-head-row > .codesys-monitor-strip { display: none; }
   .codesys-head-row > .codesys-status-strip { flex-basis: 132px; }
 }
 .codesys-output-tray { flex: 0 0 auto; display: grid; gap: 4px; max-height: 112px; overflow: auto; }
 .codesys-output-tray:empty, .codesys-output-tray > div:empty { display: none; }
 .codesys-output-tray .notice, .codesys-output-tray .code { margin: 0; padding: 5px 8px; font-size: 10px; }
-.codesys-stream { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: flex; align-items: stretch; justify-content: stretch; overflow: hidden; border: 1px solid #d8d8d8; border-radius: 6px; background: #fff; }
+/* T176：`.codesys-output-tray` 现在挂在 `.codesys-body` **外面**（在 `.codesys-head-row` 之后），
+   不再是监视舞台的兄弟。原因就是用户报的"监视区域 ui 高度和会话高度没有对齐"：托盘在舞台上方时，
+   舞台的**上边缘**会被托盘（`flex: 0 0 auto`，最多 112px）整体压低，而下边缘两个栏还都在容器底部，
+   于是"监视区"比对话栏矮一截、顶边还错位。把托盘移出 `.codesys-body` 之后，那一行里**只剩两栏**
+   （`.codesys-stage` 与 `.codesys-ai-drawer`），两者 `align-items: stretch` + `height: 100%`，
+   顶/底必然同一条线。托盘有内容时它出现在两栏**上方**，两栏一起变短 —— 不会再出现单边错位。 */
+/* `#stream-result` 是**原生窗口托管的舞台**，不是监视画面容器：它保留在 DOM 里是因为
+   codesysNativeBounds() / installCodesysNativeGeometryObserver() 用它算真实 HWND 的几何。
+   用户的删除要求（2026-10）删掉了里面的预览图（`.preview` / `.launch-window` /
+   `.input-feedback`）与配套动画，只留下托管所需的盒子。 */
+.codesys-stream { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: flex; align-items: stretch; justify-content: stretch; overflow: hidden; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; }
 .codesys-stream .empty { align-self: center; width: 100%; color: #777; }
-.codesys-stream .preview { flex: 1 1 100%; display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; object-fit: fill; overscroll-behavior: contain; cursor: default; }
-.codesys-stream .preview.launch-window { object-fit: contain; object-position: center center; background: #f3f4f6; }
 .codesys-stream.native-host-active { border-color: transparent; border-radius: 0; background: #fff; }
 .codesys-native-host-placeholder { width: 100%; height: 100%; display: grid; place-items: center; color: #98a2b3; background: #fff; font-size: 11px; }
-.codesys-stream .preview.input-feedback { animation: codesys-input-feedback .18s ease-out; }
-.codesys-stream .preview:focus-visible { outline:2px solid #fff; outline-offset:-3px; }
-.codesys-ai-composer { flex:0 0 38px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding-top:2px; }
-.codesys-ai-composer input { height:34px; padding:0 10px; border:1px solid #d5d5d5; border-radius:6px; background:#fff; color:#222; font:11px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; }
-.codesys-ai-composer button { height:34px; padding:0 12px; border-radius:6px; font:500 11px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; }
-@keyframes codesys-input-feedback { 0% { box-shadow: inset 0 0 0 2px rgba(255,255,255,.95); filter: brightness(1.06); } 100% { box-shadow: inset 0 0 0 0 rgba(255,255,255,0); filter: brightness(1); } }
+/* T174：AI 对话栏搬进 CODESYS 插件面板自己渲染 —— 不再往 DSH 原生右栏（`[class*="rightbarCol"]`）
+   里挂任何东西，所以宿主右侧栏怎么改都与这个界面无关。
+   放不下并排时的规则在下面：窄面板（≤900px）改成**覆盖式抽屉**，并且 renderer.js 的
+   `codesysAiChatOverlayRect()`/`codesysNativeBounds()` 会把真实 CODESYS HWND 收到抽屉左侧，
+   否则"对话栏开着却被 CODESYS 窗口盖住"（顶层 HWND 永远画在插件画布之上）。 */
+.codesys-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; gap: 6px; }
+/* T176：监视舞台与对话栏**等高**。`align-items: stretch` 是前提，两栏再显式 `height: 100%` +
+   `min-height: 0`（第三行的覆盖式抽屉会把 `height` 改回 `auto`，靠 inset 定位）。这一行里只有
+   这两个子元素，所以顶边与底边必然落在同一条线上。
+   ⚠️ 这里只改布局：真实 HWND 的几何仍然由 `codesysNativeBounds()` 从 `#stream-result` 的
+   `getBoundingClientRect()` 算出来，坐标逻辑一个字都没动（见 renderer.js 的 T176 备注）。 */
+.codesys-stage { flex: 1 1 auto; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; gap: 0; }
+.codesys-ai-drawer { box-sizing: border-box; position: relative; flex: 0 0 auto; width: clamp(320px, 36%, 380px); height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid #e4e8ef; border-radius: 8px; background: #fff; color: #0f1115; font: 13px/20px Inter,"Microsoft YaHei",system-ui,sans-serif; }
+.codesys-ai-drawer[hidden] { display: none; }
+/* T175①：左边缘的拖拽把手。用户原话：「会话不应该是死比列，应该可以调节宽度」。
+   把手压在抽屉左边界上（left:-3px / 7px 宽，命中区域比 1px 的边框宽得多），
+   `touch-action:none` 让指针拖动不被滚动手势抢走；宽度本身由 renderer.js 写内联
+   `style.width`（不在这里写 clamp —— 否则 JS 夹紧后的值还会被 CSS 再夹一次，两边各说一套）。 */
+.codesys-ai-resizer { position: absolute; top: 0; bottom: 0; left: -3px; z-index: 4; width: 7px; cursor: col-resize; touch-action: none; border-radius: 3px; background: transparent; }
+.codesys-ai-resizer:hover { background: linear-gradient(180deg, transparent, #9db6ea 12%, #9db6ea 88%, transparent); }
+.codesys-ai-resizer:focus-visible { outline: 2px solid #6f8fe8; outline-offset: 1px; background: linear-gradient(180deg, transparent, #9db6ea 12%, #9db6ea 88%, transparent); }
+/* 拖动中：整页保持 col-resize 光标并禁止选中文本，免得拖出"全选蓝色高亮"。 */
+body.codesys-ai-resizing { cursor: col-resize; user-select: none; }
+body.codesys-ai-resizing .codesys-ai-drawer { transition: none; }
+/* ── T176：抽屉的观感对齐 DSH 主界面会话 ────────────────────────────────────────────────────
+   用户原话：「现在会话整体ui太粗糙了没有质感，应该和主界面会话一样」。
+   ⚠️ DSH 的会话跑在 `http://127.0.0.1:*` 的 iframe 里，这个面板跑在 `file://` 的
+   app/renderer/index.html 里 —— **两边的 CSS 自定义属性不共享**（跨文档，且读不到对方
+   `getComputedStyle`；CSP 也只允许 `style-src 'self'`，不能内联样式）。所以这里把 DSH 的
+   **令牌值**逐条抄成字面量，来源是
+   `@deepseek-ai/dsh-client-ui-theme/lib/client.js` 的 `design_platform_css_default`（`:root`/body
+   亮色那份）与其 `base_css_default` 的圆角/字体：
+     --dsw-radius-xs/sm/md/lg/xl/panel = 4/8/12/16/20/28px
+     --dsw-alias-bg-base #fff            --dsw-alias-label-primary #0f1115
+     --dsw-alias-label-secondary #61666b --dsw-alias-label-tertiary #81858c
+     --dsw-alias-label-caption #adb2b8   --dsw-alias-label-dimmed #e1e5ee
+     --dsw-alias-border-l1/l2/l3/l4 = #0000000a / #0000001a / #0000001f / #00000029
+     --dsw-alias-interactive-bg-hover #2631480f  --dsw-alias-interactive-bg-hover-solid #f1f3f5
+     --dsw-specific-bubble #edf3fe（deepseek-50）  --dsw-specific-selector #f5f6f7
+     --dsw-alias-markdown-code-block #f9fafb        --dsw-alias-markdown-inline-code #fafafa
+     --dsw-alias-scrollbar-bg-l2 #e5e5e5            --dsw-alias-scrollbar-hover-l2 #d4d4d4
+     --dsw-alias-state-business-primary #4176e6     --dsw-alias-state-error-primary #ec1313
+     --ds-font-family-code "SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier
+   几何/字号同样抄自主界面会话的组件 CSS（文件:类名）：
+     chat/MessageItem.module.css `.userRow`/`.bubble`（右对齐气泡、radius-xl、padding 10px 16px、14px/22px）
+     chat/AssistantMarkdown.module.css `.root`（左侧无气泡正文、14px/24px）
+     chat/MessageIconActions.module.css `.actions`/`.action`（28×28、radius-sm、hover 才显形）
+     conversation/InputBar.module.css `.card`/`.input`/`.row`/`.select`（输入卡片 28px 圆角、
+     底行 `justify-content: space-between`、座位 28px 高 13px 字）
+     T179：模型座位不再用 `.select`（原生外观太丑），改成
+     `dsh-client-ui-model-selection` 的 `ModelSelect` 按钮 + 浮层菜单，见下面 T179 那段。
+   角色只用**对齐 + 气泡**区分（主界面没有可见的角色字），`codesys-ai-role` 走 `.sr-only`。 */
+.codesys-ai-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.codesys-ai-head strong { font: 600 13px/20px Inter,"Microsoft YaHei",system-ui,sans-serif; color: #0f1115; }
+.codesys-ai-badge { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: 999px; background: #edf3fe; color: #2f5bb7; font-size: 11px; line-height: 16px; }
+.codesys-ai-close { flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #61666b; font: 16px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; cursor: pointer; }
+.codesys-ai-close:hover { background: #2631480f; color: #0f1115; }
+.codesys-ai-close:focus-visible { outline: 2px solid #6f8fe8; outline-offset: 1px; }
+/* T181（用户原话：「依然会出现两个按钮，不需要看到」）：T180 留在会话输出区里的那两枚快捷项**整体
+   删除** —— `renderer.js` 里的 markup 生成函数、模板表标签、消息流里的两个落点、事件委托分支，以及
+   这里的两条规则（按钮本体与它的宿主容器）全部拿掉。CSS 里不留没有主人的规则，
+   界面上也不留任何替代入口（不换成别的常驻行、不新增任何文字提示）。 */
+/* 消息区：主界面 `.scroll` 就是一块普通滚动区（没有卡片边框），所以这里去掉边框和底色，
+   只留间距与滚动条观感；`scrollbar-gutter: stable` 与主界面 `.wSkVaW_scrollBody` 一致。 */
+.codesys-ai-thread { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 10px; border: 0; border-radius: 0; background: transparent; scrollbar-width: thin; scrollbar-color: #e5e5e5 transparent; }
+.codesys-ai-thread::-webkit-scrollbar { width: 10px; height: 10px; }
+.codesys-ai-thread::-webkit-scrollbar-track { background: transparent; }
+.codesys-ai-thread::-webkit-scrollbar-thumb { border: 3px solid #fff; border-radius: 999px; background: #e5e5e5; background-clip: padding-box; }
+.codesys-ai-thread::-webkit-scrollbar-thumb:hover { background: #d4d4d4; background-clip: padding-box; }
+/* 一条消息 = 一个纵向流项；用户右对齐、助手占满宽度（与主界面 `.userRow` 对称）。
+   相邻消息之间用 `--dsh-chat-flow-gap` 的同一个量级（6px）。 */
+.codesys-ai-msg { display: flex; flex-direction: column; min-width: 0; }
+.codesys-ai-msg + .codesys-ai-msg { margin-top: 6px; }
+.codesys-ai-user { align-items: flex-end; }
+.codesys-ai-assistant { align-items: stretch; }
+.codesys-ai-text { min-width: 0; display: flex; flex-direction: column; gap: 8px; color: #0f1115; font-size: 14px; line-height: 24px; word-break: break-word; }
+/* 用户气泡：`MessageItem.module.css` 的 `.bubble`（radius-xl 20px / padding 10px 16px / 14px 22px）
+   + `.userStack` 的 `max-width: 82%`（主界面是 `min(content-width * .702, 82%)`，窄抽屉里 82% 更合适）。 */
+.codesys-ai-user .codesys-ai-text { max-width: 82%; align-self: flex-end; padding: 10px 16px; border-radius: 20px; background: #edf3fe; font-size: 14px; line-height: 22px; }
+.codesys-ai-plain { min-width: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-inline-code { padding: 0 3px; border-radius: 4px; background: #fafafa; color: inherit; font: 12px/20px "SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier,monospace; }
+/* 代码块 = 主界面 `.md-code-block`：banner 行（语言名 + 复制）+ 代码正文，底色用
+   `--dsw-alias-markdown-code-block`，圆角用 `--dsw-radius-sm`。 */
+.codesys-ai-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid #0000000a; border-radius: 8px; background: #f9fafb; }
+.codesys-ai-code-head { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; border-bottom: 1px solid #0000000a; background: #f9fafb; }
+.codesys-ai-code-lang { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #81858c; font: 11px/16px "SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier,monospace; }
+.codesys-ai-code-body { max-height: 320px; margin: 0; padding: 10px 12px; overflow: auto; color: #0f1115; font: 12px/20px "SF Mono","JetBrains Mono","Fira Code",Consolas,"Liberation Mono",Menlo,Courier,monospace; white-space: pre; }
+.codesys-ai-code-body code { font: inherit; }
+.codesys-ai-code-copy, .codesys-ai-copy { flex: 0 0 auto; height: 24px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: #81858c; font: 500 11px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; cursor: pointer; }
+.codesys-ai-code-copy:hover, .codesys-ai-copy:hover { background: #2631480f; color: #61666b; }
+.codesys-ai-code-copy:focus-visible, .codesys-ai-copy:focus-visible { outline: 2px solid #6f8fe8; outline-offset: 1px; }
+.codesys-ai-code-copy.copied, .codesys-ai-copy.copied { color: #22c55e; }
+/* 助手消息的操作条：`MessageIconActions.module.css` 的 `.actions` —— 主界面在鼠标悬停（或键盘
+   焦点进入）时才显形，这里照抄；`:focus-within` 保证键盘用户也能看到它。
+   T181：这条操作条现在只装**一样**东西 —— 「复制」（消息级）。那两枚会话级快捷项随本轮要求整体删除，
+   所以它不再需要为"三样并排放不下"而放开换行；`min-height` 保留（窄抽屉里仍以 28px 为下限）。 */
+.codesys-ai-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 28px; opacity: 0; transition: opacity 80ms; }
+.codesys-ai-msg:hover .codesys-ai-actions, .codesys-ai-msg:focus-within .codesys-ai-actions { opacity: 1; }
+@media (hover: none) {
+  /* 没有 hover 的设备（触屏/远程桌面）不能把复制按钮藏起来 —— 那就等于没有。 */
+  .codesys-ai-actions { opacity: 1; }
+}
+.codesys-ai-empty { padding: 8px 4px; color: #adb2b8; font-size: 13px; line-height: 20px; }
+/* 输入卡片：主界面 InputBar 的 `.card`（`--dsw-radius-panel` 28px → 抽屉窄，用 20px 的 xl 档，
+   其余一致：白底、极淡描边、`--dsw-elevation-soft` 的柔和投影、纵向 gap、底部一行）。
+   底行 = `.uV2eYG_row`（`justify-content: space-between`）：模型下拉在左、发送在右。
+   T178：主界面那张 `.uV2eYG_card` 是 `border: 0`（描边由 elevation 自己画：它把
+   `--dsw-elevation-stroke-color` 设成 `--dsw-alias-border-l2`），所以这里也**不写 CSS border**，
+   改成同一招 —— `.5px` 的描边放进 box-shadow 第一层。这样"卡片边框"永远只有一层，
+   不会和任何内层元素叠成第二个方框。 */
+.codesys-ai-compose { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 6px; border: 0; border-radius: 20px; background: #fff; box-shadow: 0 0 0 .5px #0000001a, 0 4px 16px 0 rgba(0,0,0,.03), 0 0 24px 0 rgba(0,0,0,.03); }
+/* T178：内层输入框**任何状态下都不画自己的框**。主界面那块是 contenteditable 的 div
+   （`.uV2eYG_input{… outline:none; caret-color:var(--dsw-alias-state-business-primary)}` ——
+   它天生没有 border/background），而这里必须用 `<textarea>`，所以要主动压掉 UA 会画的四样东西：
+   `appearance`（Windows/Electron 上原生 field 外观自身就带内框）、`border`、`background`、
+   `box-shadow`，以及 `outline`。聚焦提示与主界面**完全一致：只改光标颜色**（caret-color =
+   `--dsw-alias-state-business-primary` #4176e6），框体本身一个字都不变。 */
+.codesys-ai-draft { box-sizing: border-box; width: 100%; min-height: 56px; max-height: 200px; resize: none; appearance: none; -webkit-appearance: none; padding: 6px 6px 0 8px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: #0f1115; caret-color: #4176e6; font: 14px/22px Inter,"Microsoft YaHei",system-ui,sans-serif; outline: 0; }
+.codesys-ai-draft::placeholder { color: #adb2b8; }
+.codesys-ai-draft:disabled { color: #81858c; cursor: not-allowed; }
+/* 只写 `:focus-visible` 会漏状态（部分路径下命中的是 `:focus`），用户看到的就是"点进去多一个方框"，
+   所以两个伪类都写死；三样绘制属性全部归零。 */
+.codesys-ai-draft:focus, .codesys-ai-draft:focus-visible { outline: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+/* 说明行：主界面在输入卡片上方放提示（`.uV2eYG_notice` / caption 层级）。这里放在输入框与底行
+   之间，**只在有麻烦时**才写字（读取失败 / 没有会话 / 提供方不可用 / 切换失败）；`title` 里有全文，
+   所以这里可以安心省略。
+   T179：模型短名不再写在这一行（它画在座位上）——用户原话「输入框里面显示一个 ai，选择栏还有一个
+   ai 显示重复」。正常状态下这一行是空的，`:empty` 直接把它收起来，不占位、不留一条空白。 */
+.codesys-ai-model-note { min-width: 0; overflow: hidden; color: #81858c; font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.codesys-ai-model-note:empty { display: none; }
+/* 底行 = 主界面 `.uV2eYG_row`（`justify-content: space-between`）：模型座位在左、发送在右。
+   T179：底行同时是**浮层的定位基准**（`position: relative`）。
+   T180：底行里**只有两个**参与排布的子元素（座位按钮 + 发送按钮），座位改成"内容自宽"之后
+   `space-between` 得到的就是用户要的那一行：`[模型] ……（留空）…… [发送]` 两端对齐。
+   浮层不再 `left:0/right:0`（那等于抽屉整宽，用户原话"模型选择框不要太长 很难看"），改成
+   触发器左对齐、宽度按内容并在下面那条 `max-width` 上封顶。
+   T186：支持推理等级时底行多出**第三个**子元素（等级座位，见下面 T186 段）。它靠
+   `margin-right: auto` 把自由空间吸到自己右边，所以这一行仍然是
+   `[模型][等级] ……（留空）…… [发送]`：模型胶囊与发送按钮的位置**一点没动**，
+   等级座位隐藏时又回到 T180 那两个子元素。 */
+.codesys-ai-inputrow { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 0 2px; }
+/* ── T179：模型座位 = 主界面 DSH 的 `ModelSelect`（`dsh-client-ui-model-selection`） ─────────────
+   用户原话：「选择 ai 的界面太丑了」——原生 `<select>` + `<optgroup>` 的观感与主界面完全不搭，
+   所以这里逐条抄 DSH 真包的字面量（跨文档 CSS 变量不共享 + CSP `style-src 'self'`，不能内联 style）。
+   来源（文件:类名 → 令牌）：
+     model-selection/lib/client.js `._7KE1Ra_trigger`（28px 高 / radius-sm / 13px / label-secondary /
+       hover = interactive-bg-hover / focus-visible = `0 0 0 2px` focus ring / disabled = label-dimmed）
+     `._7KE1Ra_chevron`（label-caption 色 + `transform .12s`，展开时 rotate(180deg)）
+     `._7KE1Ra_menu`（z-index 1100、`padding:4px`、`width:max-content`、`max-height:min(360px,…)`、
+       `box-shadow: var(--dsw-elevation-prominent)`、`--dsw-elevation-stroke-color: border-l1`）
+     primitives/lib/MenuSurface.module.css `.material`（`background: var(--dsw-menu-surface-fill)` +
+       `backdrop-filter: var(--dsw-menu-backdrop-filter)`、`border-radius: var(--dsw-radius-lg)`）
+     `._7KE1Ra_groups`（`min-height:0; overflow-y:auto`）、`._7KE1Ra_groupTitle`（sticky / label-tertiary /
+       11px/16px / `background: var(--dsw-specific-menu)`）
+     `._7KE1Ra_option`（radius-md、min-height 34px、hover/focus-visible = interactive-bg-hover、
+       `:disabled` = label-dimmed）、`._7KE1Ra_optionCopy`/`._7KE1Ra_modelName`（13px/18px/500）、
+       `._7KE1Ra_check`（14px 勾选，label-primary）
+   令牌字面量（theme/lib/client.js 亮色那份）：radius-sm/md/lg = 8/12/16px；
+   label-primary #0f1115、label-secondary #61666b、label-tertiary #81858c、label-caption #adb2b8、
+   label-primary-dimmed #e1e5ee；border-l1 #0000000a；interactive-bg-hover #2631480f；
+   specific-selector #f5f6f7（下面 T180 那枚胶囊的静止底色）；
+   menu-surface-fill #f8f9fa94；menu-backdrop-filter blur(40px) saturate(150%)；
+   elevation-prominent = `0 0 0 .5px <stroke>, 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d`；
+   state-business-primary（focus ring） #4176e6。
+   几何上改了两处（T180）：DSH 是 portal 到视口的 `position: fixed`，抽屉里没有 portal 机制，所以
+   菜单仍贴**底行**（`.codesys-ai-inputrow`）向上弹出；但宽度不再拉满底行 —— `width: max-content`
+   + `max-width: 256px`（DSH 真包本来就是 `width: max-content`）。长模型名在**浮层内**用省略号收起
+   （`.codesys-ai-model-option-name`），浮层本身永远不会宽过抽屉。
+
+   T180 座位（用户原话：「而且模型选择框不要太长 很难看」）：原来的 `flex: 1 1 120px` 会把它**拉满**
+   整条底行，一个短名（比如 "AI"）也要占 300 多像素。现在改成按内容自宽的小胶囊：
+     * `flex: 0 1 auto` + `width: auto` → 宽度由短名 + chevron + padding 决定，不再被 flex 拉长；
+     * `max-width: 168px` → 长名封顶（160–180px 这一档），超出由
+       `.codesys-ai-model-trigger-label` 的省略号收起，全文在座位的 `title` / `aria-label` 里
+       （`codesysAiChatSetModelTriggerLabel()` 写的，T179 就有）；
+     * 静止态给一层 `#f5f6f7` 的浅底 + 999px 圆角，让它明确是"一枚小胶囊"而不是一条隐形长条
+       （hover 仍然是 interactive-bg-hover，观感层次不变）。 */
+.codesys-ai-model-trigger { flex: 0 1 auto; width: auto; min-width: 0; max-width: 168px; height: 28px; display: flex; align-items: center; gap: 4px; padding: 0 6px 0 10px; border: 0; border-radius: 999px; appearance: none; -webkit-appearance: none; background: #f5f6f7; color: #61666b; font: 400 13px/20px Inter,"Microsoft YaHei",system-ui,sans-serif; cursor: pointer; outline: 0; }
+.codesys-ai-model-trigger:hover:not(:disabled) { background: #2631480f; }
+/* 外扩光环（同 DSH 的 focus ring）：不再多出一个贴边的方框。 */
+.codesys-ai-model-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 2px #4176e6; }
+.codesys-ai-model-trigger:disabled { color: #e1e5ee; cursor: default; }
+.codesys-ai-model-trigger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.codesys-ai-model-chevron { flex: none; color: #adb2b8; transition: transform .12s; }
+.codesys-ai-model-trigger[aria-expanded="true"] .codesys-ai-model-chevron { transform: rotate(180deg); }
+/* 浮层：磨砂卡片（MenuSurface 的 `.material` 令牌）+ `elevation-prominent` 的柔和投影与 .5px 描边。
+   左对齐触发器（`left: 0` + `right: auto`）、宽度取内容（`width: max-content`）并在 `max-width` 上封顶
+   —— 240–280px 这一档取 256px，所以它**不再等于抽屉整宽**。`overflow-y: auto` 让模型多的时候在浮层内
+   滚动（与 `._7KE1Ra_groups` 一致）；`min-width` 保证只有短名时浮层也不会缩成一条缝。 */
+.codesys-ai-model-menu { position: absolute; left: 0; right: auto; bottom: calc(100% + 6px); z-index: 30; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; width: max-content; min-width: 176px; max-width: 256px; max-height: min(360px, 50vh); overflow-y: auto; padding: 4px; border: 0; border-radius: 16px; background: #f8f9fa94; backdrop-filter: blur(40px) saturate(150%); box-shadow: 0 0 0 .5px #0000000a, 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d; color: #0f1115; scrollbar-width: thin; scrollbar-color: #e5e5e5 transparent; }
+/* 作者样式里的 `display:flex` 会盖掉 UA 的 `[hidden]{display:none}`，所以必须自己写一条。 */
+.codesys-ai-model-menu[hidden] { display: none; }
+.codesys-ai-model-group { display: flex; flex-direction: column; min-width: 0; }
+.codesys-ai-model-group + .codesys-ai-model-group { margin-top: 3px; }
+.codesys-ai-model-group-title { position: sticky; top: 0; z-index: 1; padding: 4px 7px 2px; background: #f8f9fa; color: #81858c; font: 500 11px/16px Inter,"Microsoft YaHei",system-ui,sans-serif; }
+.codesys-ai-model-option { box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; min-width: 100%; min-height: 34px; padding: 5px 7px; border: 0; border-radius: 12px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.codesys-ai-model-option:hover, .codesys-ai-model-option[data-active="true"], .codesys-ai-model-option:focus-visible { background: #2631480f; outline: 0; }
+.codesys-ai-model-option[aria-disabled="true"] { color: #e1e5ee; cursor: default; }
+.codesys-ai-model-option[aria-disabled="true"] .codesys-ai-model-option-name { font-weight: 400; }
+.codesys-ai-model-option-copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.codesys-ai-model-option-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/18px Inter,"Microsoft YaHei",system-ui,sans-serif; }
+.codesys-ai-model-check { flex: 0 0 14px; display: grid; place-items: center; color: #0f1115; }
+.codesys-ai-model-check svg { width: 14px; height: 14px; }
+/* 发送：主界面 `.uV2eYG_primary` 的配色（`--dsw-alias-button-info-fill` = deepseek-500 #4176e6，
+   hover 用 deepseek-400 #7aaaff），圆角 999px；抽屉窄，所以做成带文字的胶囊而不是 34px 圆钮。
+   T178：和下拉同一招 —— `appearance: none` 压掉原生按钮外观，聚焦用外扩光环而**不是** outline
+   （`outline` 会沿控件边缘画矩形，看起来就是"多一个框"）；颜色同 DSH 的 focus ring。 */
+.codesys-ai-send { flex: 0 0 auto; height: 28px; padding: 0 14px; border: 0; border-radius: 999px; appearance: none; -webkit-appearance: none; background: #4176e6; color: #fff; font: 500 12px/1 Inter,"Microsoft YaHei",system-ui,sans-serif; cursor: pointer; transition: background-color .1s; }
+.codesys-ai-send:hover:not(:disabled) { background: #5b8bef; }
+.codesys-ai-send:focus-visible { outline: 0; box-shadow: 0 0 0 2px #4176e6; }
+.codesys-ai-send:disabled { opacity: .4; cursor: default; }
+/* ── T186：推理等级座位（第二枚胶囊 + 第二层浮层）──────────────────────────────────────────────
+   用户原话「思考强度也要能选」。**观感与模型座位逐字一致**：它直接复用上面那套
+   `.codesys-ai-model-trigger` / `.codesys-ai-model-menu` / `.codesys-ai-model-option` 的字面量，
+   所以 T180 钉住的两条几何（模型胶囊 `max-width: 168px`、浮层 `max-width: 256px`）一个字没动 ——
+   这里只补模型座位没有的三件事：
+
+     1. **座位外壳**（`.codesys-ai-effort-seat`）：浮层要贴**这一枚**胶囊弹出，所以外壳自己
+        `position: relative`（底行也是 `position: relative`，但底行是整行的定位基准，浮层挂在那里
+        会跑到模型胶囊那一侧去）。作者样式的 `display: flex` 会盖掉 UA 的 `[hidden] { display:none }`，
+        所以 `[hidden]` 必须自己再写一条 —— 这正是"模型不支持推理等级时**不显示**这个控件"的实现。
+        `margin-right: auto` 把底行剩余的自由空间全部吸到等级座位**右边**：于是"模型 + 等级"贴左、
+        "发送"贴右（T180 那条 `space-between` 的观感不变，模型胶囊的位置也一点没动）；
+        等级座位 `hidden` 时它整个不参与排布，底行又回到 T180 的两个子元素。
+     2. **档位名很短**（Off / Low / High / Max / Default），所以这枚胶囊的封顶比模型那枚更紧
+        （108px 足够放下最长的 "Default" + chevron + padding）。模型胶囊那一条 168px **没有**被改。
+     3. **浮层右对齐触发器**：这枚胶囊在底行中间，浮层若还照模型那套 `left: 0` 就会从**模型胶囊**
+        那一侧长出来、和它自己的座位脱节。主界面 DSH 自己的定位就是右对齐触发器
+        （`dsh-client-ui-model-selection/lib/client.js:575` `let x = rect.right - lw`），所以这里与
+        真包同口径：`right: 0` + `left: auto`。它仍在抽屉内（`max-width: 256px` 封顶）。
+   两条规则的**书写顺序**在这里是有意义的：`.codesys-ai-effort-*` 必须排在 `.codesys-ai-model-*`
+   之后（同特异性，后者胜），否则 `left/right` 会被模型那套盖回去。 */
+.codesys-ai-effort-seat { position: relative; flex: 0 1 auto; min-width: 0; display: flex; align-items: center; margin-right: auto; }
+.codesys-ai-effort-seat[hidden] { display: none; }
+.codesys-ai-effort-trigger { max-width: 108px; }
+.codesys-ai-effort-trigger[hidden] { display: none; }
+.codesys-ai-effort-menu { left: auto; right: 0; }
+/* T180：**状态提示 = 消息流尾的一行**（用户原话："已连接数据桥直接显示在会话输出区就好了，不要一直
+   显示在输入框上面"）。原来那条常驻状态行（输入卡片上方的独立节点）**整体删除**：它空着也占位置、
+   有字就长期停在那儿，正是用户要求撤掉的东西。现在这一族提示由 `codesysAiChatSetStatus()` 写成
+   消息流里的一行 `.codesys-ai-notice`：
+     * 底/字沿用原来那条的同一组令牌（interactive-bg-hover #2631480f + label-secondary #61666b），
+       层级关系没变，所以"失败说明"看起来仍然是一条正式的提示而不是警报条；
+     * 空串时 `codesysAiChatNoticeMarkup()` 返回 ''，**节点根本不存在**（没有空壳、没有占位）；
+     * 详细原因写在 `title` 里（窄抽屉里字会被省略号截断，悬停必须能看到全文）。 */
+.codesys-ai-notice { flex: 0 0 auto; margin: 0 4px; padding: 6px 8px; border-radius: 8px; background: #2631480f; color: #61666b; font-size: 12px; line-height: 18px; word-break: break-word; }
+/* ── T183：抽屉里的"正在思考 / 进行中"（与主界面同一批字、同一套观感） ─────────────────────────
+   用户原话：「现在有输出，但是没有显示在思考」。主界面在生成期间画的就是下面这两行（DSH 真包，
+   文件:类名都给出来，不是照感觉抄的）：
+     * 有推理文本 → `@deepseek-ai/dsh-client-ui-chat` 的 `ReasoningRow`
+       （`lib/client.js:5850-5907`；它的 CSS 在 `:5793`，类名 `.lcKema_*`）：标题是
+       `message.think` = **"思考"**（`:5549` + `:5897`），右侧 13px 的流式摘要
+       （`:5853` 取"最后一段的第一行"），折叠态整行只有 24px 高、正文缩进
+       `calc(22px + font-delta)`（`.lcKema_thinkBody`），展开才看全文。
+     * 没有推理文本 → `ProcessGroupHeader`（`:2253-2296`，CSS 在 `:2169` 的 `.O_Ebla_*`）：
+       图标 + 标题，默认 activity 是 `thinking` ⇒ `message.stepProcess.thinking` =
+       **"正在分析请求"**（`:5415`）；`leading` 里图标与 chevron 是叠着的，hover/focus 才翻面
+       （`.O_Ebla_title:is(:hover,:focus-visible)`）。
+     * 扫光参数来自 `@deepseek-ai/dsh-client-ui-primitives/lib/TextShimmer.module.css`：
+       `1.5s steps(48,end) .3s infinite`，着色 `--dsw-alias-label-shimmer`
+       （亮色 = `color-mix(in srgb, #000 30%, transparent)` ⇒ `rgba(0,0,0,.3)`）。
+   颜色/字号沿用上面 T176 那段列出的令牌字面量（跨文档读不到 DSH 的 CSS 变量，只能抄值）。
+   这一块只在**会话正在运行**时存在：`running` 一变回 false 就整块消失，不留任何常驻文案。 */
+.codesys-ai-live { flex: 0 0 auto; min-width: 0; margin-top: 6px; }
+.codesys-ai-live-row { max-width: 100%; display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: #61666b; font: inherit; font-size: 14px; line-height: 24px; text-align: left; }
+button.codesys-ai-live-row { cursor: pointer; }
+button.codesys-ai-live-row:hover, button.codesys-ai-live-row:focus-visible { color: #0f1115; outline: 0; }
+.codesys-ai-live-leading { position: relative; flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: #81858c; }
+.codesys-ai-live-icon, .codesys-ai-live-chevron { position: absolute; inset: 0; display: inline-flex; align-items: center; justify-content: center; transition: opacity .1s; }
+.codesys-ai-live-icon { opacity: 1; }
+.codesys-ai-live-chevron { opacity: 0; color: #61666b; }
+button.codesys-ai-live-row:hover .codesys-ai-live-icon, button.codesys-ai-live-row:focus-visible .codesys-ai-live-icon, button.codesys-ai-live-row[aria-expanded="true"] .codesys-ai-live-icon { opacity: 0; }
+button.codesys-ai-live-row:hover .codesys-ai-live-chevron, button.codesys-ai-live-row:focus-visible .codesys-ai-live-chevron, button.codesys-ai-live-row[aria-expanded="true"] .codesys-ai-live-chevron { opacity: 1; }
+.codesys-ai-live-title { font-weight: 400; white-space: nowrap; }
+.codesys-ai-live-sep { flex: none; width: 2px; height: 2px; margin: 0 8px; border-radius: 1px; background: #adb2b8; }
+/* 没有"已完成段落"时，主界面把 separator + summary 一起藏起来
+   （`.lcKema_root:not([data-preview]) …  { display: none }`，`:5793`），这里照抄。 */
+.codesys-ai-live:not([data-preview]) .codesys-ai-live-sep,
+.codesys-ai-live:not([data-preview]) .codesys-ai-live-summary { display: none; }
+.codesys-ai-live-summary { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #81858c; font-size: 13px; line-height: 20px; }
+.codesys-ai-live-body { padding: 4px 0 4px 22px; color: #81858c; font-size: 13px; line-height: 20px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-live-body[hidden] { display: none; }
+/* 扫光：同一个 1.5s / steps(48,end) / .3s 延迟 / 无限循环的节奏，同一抹 30% 黑。
+   DSH 用的是"遮罩平移"，这里用同角度的渐变背景平移（行为等价，且不需要 mask 前缀）。 */
+.codesys-ai-live [data-streaming="1"] { position: relative; display: inline-block; min-width: 0; max-width: 100%; }
+.codesys-ai-live [data-streaming="1"]::after { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(105deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,.3) 40%, rgba(0,0,0,.3) 60%, rgba(0,0,0,0) 60%, rgba(0,0,0,0) 100%); background-repeat: no-repeat; background-size: 250% 100%; background-position: 100% 0; animation: codesys-ai-live-sweep 1.5s steps(48, end) .3s infinite; }
+@keyframes codesys-ai-live-sweep { 0% { background-position: 100% 0; } 66.6667%, 100% { background-position: 0% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .codesys-ai-live [data-streaming="1"]::after { display: none; }
+}
+
+/* ── T185：抽屉里的「待回答」 ───────────────────────────────────────────────────────────────
+   用户报「原会话有一个待回答，但抽屉不显示，于是一直卡住」。上面那一段（T183 的"正在思考"）说的是
+   "模型正在生成"，这一段说的是"**回合卡在等你回答**"—— 两件事，同一位置、互斥显示。
+   观感对着 DSH 自己的提问面抄（`@deepseek-ai/dsh-client-ui-user-questions/lib/client.js` 的
+   `QuestionFlow` / `PlanReviewPanel`）：状态条用 warn 档的三件套（`--dsw-alias-state-warn-*`，
+   与 `PlanReviewPanel` 的 `.strip` 同一个 token），选项是一排胶囊按钮，选中态用主界面气泡那一档
+   蓝（`--dsw-static-deepseek-50` #edf3fe，与 `.codesys-ai-user` 的气泡同色）；提交按钮用主色实心。
+   一段里出现的字只有三类：DSH 自己那两个状态词条（"待回答"/"等待回答"，由数据桥原样带回）、
+   asker 写的问题与选项原文、以及失败时那一行可读原因 —— 没有一句是这里新造的。 */
+.codesys-ai-pending { flex: 0 0 auto; min-width: 0; margin-top: 8px; border: 1px solid var(--dsw-alias-border-l2, #e6e8eb); border-radius: 12px; background: #fff; overflow: hidden; }
+.codesys-ai-pending-strip { display: flex; align-items: center; gap: 6px; padding: 7px 10px; background: var(--dsw-alias-state-warn-tertiary, #fff7e6); color: var(--dsw-alias-state-warn-primary, #b25e09); font-size: 12px; line-height: 18px; }
+.codesys-ai-pending-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.codesys-ai-pending-label { font-weight: 500; }
+.codesys-ai-pending-count { margin-left: auto; color: #81858c; }
+.codesys-ai-pending-question { padding: 8px 10px 10px; }
+.codesys-ai-pending-question + .codesys-ai-pending-question { border-top: 1px solid #eef0f3; }
+.codesys-ai-pending-head { margin-bottom: 2px; color: #81858c; font-size: 11px; line-height: 16px; }
+.codesys-ai-pending-text { color: #0f1115; font-size: 14px; line-height: 22px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-pending-text .codesys-ai-code { margin: 6px 0; }
+.codesys-ai-pending-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.codesys-ai-answer-option { flex: 0 1 auto; max-width: 100%; padding: 5px 10px; border: 1px solid #d8dbe0; border-radius: 999px; background: #fff; color: #0f1115; font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }
+.codesys-ai-answer-option:hover, .codesys-ai-answer-option:focus-visible { border-color: #9aa1a9; outline: 0; }
+.codesys-ai-answer-option[aria-checked="true"] { border-color: #2b5cd9; background: #edf3fe; color: #1b3f9e; }
+.codesys-ai-answer-custom { display: block; width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #d8dbe0; border-radius: 8px; background: #fff; color: #0f1115; font: inherit; font-size: 13px; line-height: 20px; }
+.codesys-ai-answer-custom:focus-visible { border-color: #2b5cd9; outline: 0; }
+.codesys-ai-pending-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 8px 10px 10px; border-top: 1px solid #eef0f3; }
+.codesys-ai-pending-note { min-width: 0; flex: 1 1 auto; color: #b42318; font-size: 11px; line-height: 16px; }
+.codesys-ai-pending-note:empty { display: none; }
+.codesys-ai-answer-submit, .codesys-ai-answer-home { flex: none; padding: 6px 12px; border: 1px solid #2b5cd9; border-radius: 8px; background: #2b5cd9; color: #fff; font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.codesys-ai-answer-submit:hover:not([disabled]), .codesys-ai-answer-submit:focus-visible { border-color: #1b3f9e; background: #1b3f9e; outline: 0; }
+.codesys-ai-answer-submit[disabled] { border-color: #c7ccd3; background: #c7ccd3; cursor: default; }
+.codesys-ai-answer-home { border-color: #d8dbe0; background: #fff; color: #0f1115; }
+.codesys-ai-answer-home:hover, .codesys-ai-answer-home:focus-visible { border-color: #9aa1a9; outline: 0; }
+@media (max-width: 900px) {
+  /* 覆盖式抽屉只有 240–360px：脚注与按钮竖排，按钮占满一行（窄抽屉里并排会把原因挤成一条缝）。 */
+  .codesys-ai-pending-foot { flex-direction: column; align-items: stretch; }
+  .codesys-ai-answer-submit, .codesys-ai-answer-home { width: 100%; }
+}
+/* ── A 段：抽屉里的「待确认改动」+「确认写入工程」+ 编译结果 ──────────────────────────────────
+   用户原话：「AI 对话只是调用工作台的能力，不是转到工作台操作，代码输出等都应该出现在 AI 输出框，
+   确认写入等应该为对话输出框提示」。所以工作台的差异与写入入口搬进消息流：差异按工作台编辑器同一
+   口径画（`- 行号 | 旧文本` / `+ 行号 | 新文本`，同一个 codesysChangedLineNumbers 算出来的行号），
+   写入按钮只有一枚（sha 防护挡下后才多第二枚），编译结果跟在它后面。
+   观感沿用同一段已有的那套 token：状态条用主色档（与"待回答"那条 warn 档区分开），差异块用等宽字体。 */
+.codesys-ai-proposal { flex: 0 0 auto; min-width: 0; margin-top: 8px; border: 1px solid var(--dsw-alias-border-l2, #e6e8eb); border-radius: 12px; background: #fff; overflow: hidden; }
+.codesys-ai-proposal-strip { display: flex; align-items: center; gap: 6px; padding: 7px 10px; background: var(--dsw-alias-bg-layer-2, #f5f7fa); color: #1b3f9e; font-size: 12px; line-height: 18px; }
+.codesys-ai-proposal-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.codesys-ai-proposal-label { font-weight: 500; }
+.codesys-ai-proposal-count { margin-left: auto; color: #81858c; }
+.codesys-ai-proposal-summary { padding: 8px 10px 0; color: #0f1115; font-size: 13px; line-height: 20px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-proposal-object { padding: 8px 10px 10px; }
+.codesys-ai-proposal-object + .codesys-ai-proposal-object { border-top: 1px solid #eef0f3; }
+.codesys-ai-proposal-object-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.codesys-ai-proposal-object-name { color: #0f1115; font-size: 13px; font-weight: 600; word-break: break-all; }
+.codesys-ai-proposal-object-op { margin-left: auto; flex: none; color: #81858c; font-size: 11px; }
+.codesys-ai-proposal-section + .codesys-ai-proposal-section { margin-top: 6px; }
+.codesys-ai-proposal-section-name { display: block; color: #81858c; font-size: 11px; line-height: 16px; }
+.codesys-ai-proposal-patch { margin: 2px 0 0; padding: 6px 8px; max-height: 210px; overflow: auto; border-radius: 8px; background: #f7f8fa; color: #0f1115; font: 11px/17px Consolas, "Cascadia Mono", "Courier New", monospace; white-space: pre; }
+.codesys-ai-patch-line { display: block; }
+.codesys-ai-patch-line[data-ai-patch-kind="-"] { color: #b42318; background: #fdf3f2; }
+.codesys-ai-patch-line[data-ai-patch-kind="+"] { color: #17663a; background: #f2fbf5; }
+.codesys-ai-patch-more, .codesys-ai-proposal-more { display: block; color: #81858c; font-size: 11px; line-height: 16px; }
+.codesys-ai-proposal-more { padding: 0 10px 8px; }
+.codesys-ai-proposal-error { margin: 0 10px 8px; padding: 6px 8px; border-radius: 6px; background: #fdf3f2; color: #b42318; font-size: 11px; line-height: 16px; white-space: pre-wrap; }
+.codesys-ai-proposal-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 8px 10px 10px; border-top: 1px solid #eef0f3; }
+.codesys-ai-proposal-note { min-width: 0; flex: 1 1 auto; color: #b42318; font-size: 11px; line-height: 16px; }
+.codesys-ai-proposal-note:empty { display: none; }
+.codesys-ai-write-confirm, .codesys-ai-write-override { flex: none; padding: 6px 12px; border: 1px solid #2b5cd9; border-radius: 8px; background: #2b5cd9; color: #fff; font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.codesys-ai-write-confirm:hover:not([disabled]), .codesys-ai-write-confirm:focus-visible { border-color: #1b3f9e; background: #1b3f9e; outline: 0; }
+.codesys-ai-write-confirm[disabled] { border-color: #c7ccd3; background: #c7ccd3; cursor: default; }
+/* 第二枚（覆盖确认）是危险动作：红档，位置靠右、与主按钮并排 —— 用户必须真的看见它写的字。 */
+.codesys-ai-write-override { border-color: #b42318; background: #fff; color: #b42318; }
+.codesys-ai-write-override:hover:not([disabled]), .codesys-ai-write-override:focus-visible { border-color: #7a1a12; background: #fdf3f2; outline: 0; }
+.codesys-ai-write-override[disabled] { border-color: #c7ccd3; color: #81858c; cursor: default; }
+/* 本轮：**放弃**（用户原话「确认写入旁边加入一个放弃选项」「放弃写入也包括手写改动」）。它与主按钮
+   并排、位置在它左边，但观感刻意做成**次要**档（白底灰边），不与"确认写入"抢主色 —— 它是"少写"
+   而不是"多写"。范围（含工作台里的手写改动、退回磁盘最新版本）写在按钮的 title 里。 */
+.codesys-ai-write-discard { flex: none; padding: 6px 12px; border: 1px solid #c7ccd3; border-radius: 8px; background: #fff; color: #444c56; font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.codesys-ai-write-discard:hover:not([disabled]), .codesys-ai-write-discard:focus-visible { border-color: #8f959d; background: #f5f6f7; color: #0f1115; outline: 0; }
+.codesys-ai-write-discard[disabled] { border-color: #dcdfe3; background: #f5f6f7; color: #9aa0a6; cursor: default; }
+.codesys-ai-build { flex: 0 0 auto; min-width: 0; margin-top: 8px; border: 1px solid var(--dsw-alias-border-l2, #e6e8eb); border-radius: 12px; background: var(--dsw-alias-bg-layer-2, #f5f7fa); overflow: hidden; }
+.codesys-ai-build-head { padding: 7px 10px; color: #0f1115; font-size: 12px; line-height: 18px; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-build[data-ai-build-state="failed"] .codesys-ai-build-head, .codesys-ai-build[data-ai-build-state="unavailable"] .codesys-ai-build-head { color: #b42318; }
+.codesys-ai-build-messages { margin: 0; padding: 0 10px 8px; max-height: 210px; overflow: auto; font: 11px/17px Consolas, "Cascadia Mono", "Courier New", monospace; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+.codesys-ai-build-line { display: block; color: #4b5563; }
+.codesys-ai-build-line[data-ai-build-severity="error"] { color: #b42318; }
+.codesys-ai-build-line[data-ai-build-severity="warning"] { color: #b25e09; }
+.codesys-ai-build-more { display: block; color: #81858c; }
+@media (max-width: 900px) {
+  /* 窄抽屉（覆盖式，240–360px）：脚注与按钮竖排，按钮各占一行（本轮起「放弃」也在这一组里）。 */
+  .codesys-ai-proposal-foot { flex-direction: column; align-items: stretch; }
+  .codesys-ai-write-confirm, .codesys-ai-write-override, .codesys-ai-write-discard { width: 100%; }
+}
+@media (max-width: 900px) {
+  /* 覆盖式抽屉：宽度用 `clamp(240px, 100% - 320px, 360px)` 而不是固定 360px —— 320px 是
+     `codesysNativeBounds()` 给真实 HWND 的最小宽度，这样常见的 606px 插件面板下抽屉取 286px、
+     CODESYS 窗口仍有 320px，两者**都不会被对方盖住**。（js 侧只测量实际宽度，不重复算这套规则。）
+     T175：这里**没拖过**时才生效 —— 拖过之后 renderer.js 会写内联 `style.width`（内联优先于本规则），
+     并把上限夹在"面板宽度的 70%"以内，所以覆盖式行为照旧、只是宽度可以由用户决定。
+     T176：覆盖式仍然铺满 `.codesys-body` 的整条纵向带（`top:0`/`bottom:0`），所以它与监视舞台
+     照旧等高；`height: auto` 是必须的 —— 否则 `height: 100%` 会和 `top/bottom` 打架。 */
+  .codesys-ai-drawer { position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; height: auto; width: clamp(240px, calc(100% - 320px), 360px); border-radius: 8px; background: #fff; box-shadow: -10px 0 26px rgba(16,24,40,.18); }
+}
 
 .browser-surface { width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #fff; color: #202020; font: 12px/1.4 Inter,"Microsoft YaHei",system-ui,sans-serif; }
 .browser-chrome { height: 78px; overflow: hidden; border-bottom: 1px solid #d8d8d8; background: #f7f7f7; }
@@ -118,7 +515,7 @@ button.secondary { border-color: #cfcfcf; color: #222; border-radius: 6px; }
 .browser-empty { height: calc(100% - 78px); display: grid; place-items: center; color: #777; font-size: 12px; }
 @keyframes taskhive-browser-spin { to { transform: rotate(360deg); } }
 
-.knowledge-workbench,.expert-workbench { display:grid; gap:12px; }
+.knowledge-workbench { display:grid; gap:12px; }
 .knowledge-create-row { display:grid; grid-template-columns:minmax(130px,.8fr) 120px minmax(240px,1.6fr) auto; gap:7px; align-items:stretch; }
 .knowledge-create-row input,.knowledge-create-row select,.knowledge-create-row textarea { min-height:34px; border-radius:6px; border-color:#d6d6d6; resize:vertical; }
 .knowledge-sync-row { display:grid; grid-template-columns:minmax(260px,1fr) auto; gap:7px; align-items:center; }
@@ -136,25 +533,4 @@ button.secondary { border-color: #cfcfcf; color: #222; border-radius: 6px; }
 .knowledge-type-group>summary span:last-child { margin-left:auto; color:#777; }
 .knowledge-status-group { margin-top:8px!important; background:#fafafa!important; }
 .repository-details { margin-top:12px!important; }
-.expert-mode-row { display:flex; align-items:center; gap:6px; border-bottom:1px solid #dedede; padding-bottom:9px; }
-.expert-mode { height:30px; padding:0 13px; border:1px solid transparent; border-radius:6px; background:transparent; color:#555; cursor:pointer; }
-.expert-mode.active { border-color:#bdbdbd; background:#f0f0f0; color:#171717; font-weight:600; }
-/* Team-only: the mode label is a static indicator, not a tab, so it must not
-   advertise a click that no longer exists. */
-.expert-mode-row span.expert-mode { display:inline-flex; align-items:center; cursor:default; }
-.expert-mode-hint { color:#777; font-size:12px; }
-.expert-columns { display:grid; grid-template-columns:minmax(180px,.75fr) minmax(260px,1.25fr) minmax(230px,1fr); gap:10px; align-items:start; }
-.expert-column { display:grid; gap:8px; min-width:0; padding:12px; border:1px solid #d9d9d9; border-radius:7px; background:#fff; }
-.expert-column>strong { font-size:12px; }
-.expert-column label { display:grid; gap:4px; color:#666; font-size:10px; }
-.expert-column input,.expert-column select { height:34px; padding:0 9px; border-radius:6px; border-color:#d6d6d6; font-size:11px; }
-.expert-column select[multiple] { height:70px; padding:5px 7px; }
-.expert-stage-list { display:grid; gap:5px; max-height:180px; overflow:auto; }
-.expert-stage { display:grid; gap:2px; padding:6px 7px; border:1px solid #e1e1e1; border-radius:5px; background:#fafafa; }
-.expert-stage strong { font-size:10px; color:#202020; }
-.expert-stage small { color:#777; font-size:9px; }
-.expert-card-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; max-height:350px; overflow:auto; }
-.expert-summary-card { display:grid; gap:3px; min-width:0; padding:9px; border:1px solid #dedede; border-radius:6px; background:#fafafa; }
-.expert-summary-card strong { font-size:12px; }
-.expert-summary-card span,.expert-summary-card small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#666; font-size:10px; }
-@media(max-width:1000px){.knowledge-create-row{grid-template-columns:1fr 110px 1.5fr}.knowledge-create-row button{grid-row:2}.expert-columns{grid-template-columns:1fr 1fr}.expert-create-column{grid-column:1/-1}}
+@media(max-width:1000px){.knowledge-create-row{grid-template-columns:1fr 110px 1.5fr}.knowledge-create-row button{grid-row:2}}

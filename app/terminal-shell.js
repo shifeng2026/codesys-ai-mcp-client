@@ -46,10 +46,23 @@ function probe(candidate, run = spawnSync, exists = fs.existsSync) {
 
 function resolvePowerShell7(options = {}) {
   if ((options.platform || process.platform) !== 'win32') return { command: options.env?.SHELL || process.env.SHELL || '/bin/bash', version: '', edition: 'posix', ready: true };
-  const candidates = [...candidatePaths(options.env || process.env), 'pwsh.exe'];
-  const matches = candidates.map((candidate) => probe(candidate, options.run || spawnSync, options.exists || fs.existsSync)).filter(Boolean);
-  matches.sort((left, right) => compareVersions(right.versionParts, left.versionParts));
-  return matches[0] || { command: 'powershell.exe', version: '5.1', edition: 'Desktop', ready: false };
+  const exists = options.exists || fs.existsSync;
+  const run = options.run || spawnSync;
+  // T152：探测很贵 —— 每次 `spawnSync('pwsh.exe', …)` 实测 480–510 ms，而这是在
+  // **模块加载期**（`app.whenReady()` 之前、连 splash 都还没建）执行的。
+  // 原实现 `candidates.map(probe)` 把**所有**候选都跑一遍再排序取最高版本，
+  // 本机 3 个候选 ≈1.5 s 纯阻塞。`probe()` 本身已要求 PowerShell 7.x，
+  // 所以命中第一个即可返回（PATH 顺序 = 用户偏好），裸 `pwsh.exe` 只作最后手段。
+  const seen = new Set();
+  const ordered = [...candidatePaths(options.env || process.env), 'pwsh.exe'];
+  for (const candidate of ordered) {
+    const key = path.isAbsolute(candidate) ? path.resolve(candidate).toLowerCase() : `bare:${candidate}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const probed = probe(candidate, run, exists);
+    if (probed) return probed;
+  }
+  return { command: 'powershell.exe', version: '5.1', edition: 'Desktop', ready: false };
 }
 
 function shellInvocation(shell, command, platform = process.platform) {
